@@ -1,0 +1,52 @@
+# IDEs and Editors
+.idea
+.vscode
+*~
+
+# Python-related
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+dist/
+htmlcov/
+site/
+*.py[cod]
+*.so
+*.egg
+*.egg-info
+*.pyd
+.Python
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Coverage reports
+.coverage*
+coverage.xml
+
+# Environments
+Pipfile.lock
+env/
+env3.*
+venv/
+.venv/
+.env
+
+# Logs and databases
+test.db
+log.txt
+
+# Documentation builds
+docs_build/
+site_build/
+docs.zip
+
+# Archives
+archive.zip
+
+# macOS specific
+.DS_Store
+
+# Temporary files
+.cache
+.*.sw?
