@@ -103,6 +103,7 @@ async def main():
                 logger.info("Found existing session, using stored credentials")
                 username = session_data["credentials"]["username"]
                 password = session_data["credentials"]["password"]
+                email = session_data["credentials"]["email"]
                 # Create context with stored state
                 context = await browser.new_context(
                     storage_state=session_data["storage_state"],
@@ -112,9 +113,6 @@ async def main():
                 )
             else:
                 logger.info("No existing session found, using default credentials")
-                username = "msc72m_dev"
-                password = "09935083803M@m"
-                email = "Mohammad278Sadeghian1@gmail.com"
                 context = await browser.new_context(
                     viewport={'width': 1920, 'height': 1080},
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/118.0.0.0 Safari/537.36",
