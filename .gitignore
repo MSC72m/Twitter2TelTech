@@ -40,7 +40,8 @@ log.txt
 docs_build/
 site_build/
 docs.zip
-
+browser_data/
+session.json
 # Archives
 archive.zip
 
