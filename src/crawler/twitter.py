@@ -1,15 +1,19 @@
 import asyncio 
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
-import datetime
-import re
-from typing import List, Optional
-import logging
+from typing import List, Optional, Dict
 from pathlib import Path
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+from httpx import AsyncClient, TimeoutException, HTTPStatusError
+from httpx._exceptions import HTTPError, RequestError
 import random
 import os
-from dotenv import load_dotenv
+import json
+import datetime
+import re
+import logging
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,6 +31,15 @@ class Tweet:
     """Data class to store tweet information"""
     id: str
     date: datetime.datetime
+
+
+@dataclass
+class TweetMedia:
+    id: str
+    date: datetime.datetime
+    media_url: str
+    type: str
+    caption: str
 
 class TwitterAuthError(Exception):
     """Custom exception for authentication errors"""
@@ -57,33 +70,27 @@ class TwitterAuth:
             
             logger.info("Waiting for username input...")
             await page.wait_for_selector('input[autocomplete="username"]', timeout=10000)
-            await page.fill('input[autocomplete="username"]', self.credentials.username)
+            await page.fill('input[autocomplete="username"]', "msc72m_dev")#self.credentials.username)
             
             await page.click('button[role="button"]:has-text("Next")')
 
-            await page.wait_for_timeout(3000)
+            # Wait for next screen to load
+            await page.wait_for_load_state('networkidle', timeout=15000)
 
-            logger.info("Looking for password input...")
-            pass_entry = await page.wait_for_selector('input[type="password"]', timeout=1000)
+
+            pass_entry = await page.query_selector('input[type="password"]')
             if not pass_entry:
+                logger.info("password input not found, trying email input...")
                 logger.info(f"waiting for email input...")
-                await page.wait_for_selector('input[type="text"]', timeout=10000)
+                await page.wait_for_selector('input[type="text"]', timeout=15000)
                 await page.fill('input[type="text"]', self.credentials.email)
                 await page.click('button[type="button"]:has-text("Next")')
-                
-                logger.info("Looking for password input...")
-                await page.wait_for_selector('input[type="password"]', timeout=10000)
-                await page.fill('input[type="password"]', self.credentials.password)
-                await page.click('button[type="button"]:has-text("Log in")')
-                await page.wait_for_timeout(5000)
 
             await page.fill('input[type="password"]', self.credentials.password)
             await page.click('button[type="button"]:has-text("Log in")')
             
-            await page.wait_for_timeout(5000)
+            await page.wait_for_timeout(7000)
             
-            # Wait for login to complete
-            await page.wait_for_timeout(5000)
             
             # Verify login success
             try:
@@ -101,13 +108,14 @@ class TwitterAuth:
 class TwitterScraper:
     """Handles Twitter scraping operations"""
     
-    def __init__(self, credentials: TwitterCredentials, username_to_scrape: str, days_to_scrape: int):
+    def __init__(self, credentials: TwitterCredentials, username_to_scrape: str, days_to_scrape: int, headless: bool = False):
         self.credentials = credentials
         self.username_to_scrape = username_to_scrape.strip('@')
         self.days_to_scrape = days_to_scrape
         self.cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_to_scrape)
         self.processed_tweets = set()
-
+        self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
+        self.headless = headless
     def _build_search_url(self) -> str:
         """Build Twitter search URL with appropriate filters"""
         end_date = datetime.datetime.now(datetime.timezone.utc)
@@ -131,7 +139,7 @@ class TwitterScraper:
         """Set up browser with appropriate configurations"""
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=False,
+                headless=self.headless,
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -141,7 +149,6 @@ class TwitterScraper:
             )
             
             context = await browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/118.0.0.0 Safari/537.36",
                 ignore_https_errors=True
             )
@@ -152,7 +159,7 @@ class TwitterScraper:
                 await browser.close()
 
 
-    async def _wait_for_network_idle(self, page: Page, timeout: int = 30000):
+    async def _wait_for_network_idle(self, page: Page, timeout: int = 6000):
         """Wait for network to become idle"""
         try:
             await page.wait_for_load_state("networkidle", timeout=timeout)
@@ -285,6 +292,58 @@ class TwitterScraper:
             logger.error(f"Fatal error in scrape_tweets: {str(e)}")
             raise TwitterScraperError(f"Scraping failed: {str(e)}")
     
+    async def get_tweet_content(self, tweet_id: str) -> List[Dict]:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json"
+        }
+        
+        try:
+            # Note the parentheses after AsyncClient and await for async operations
+            async with AsyncClient(verify=False, timeout=15.0) as client:
+                response = await client.get(
+                    f"{self.twitter_api}/{tweet_id}",
+                    headers=headers
+                )
+                await response.aread()  # Ensure the response body is fully read
+                response.raise_for_status()
+                
+                tweet_content = response.json()
+                
+                if not tweet_content:
+                    logger.info(f"No tweet content found for tweet ID {tweet_id}")
+                    return []
+                    
+                logger.info(f"Successfully scraped tweet {tweet_id}")
+                logger.debug(f"Tweet content: {tweet_content}")
+                
+                return [tweet_content]  # Return as list to match return type
+                
+        except TimeoutException as e:
+            logger.error(f"Timeout while fetching tweet {tweet_id}: {str(e)}")
+            return []
+            
+        except HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            if e.response.status_code == 404:
+                logger.info(f"Tweet {tweet_id} not found")
+            else:
+                logger.error(f"Failed to fetch tweet {tweet_id}: {error_msg}")
+            return []
+            
+        except Exception as e:
+            logger.error(f"Unexpected error fetching tweet {tweet_id}: {str(e)}")
+            return []
+    async def get_tweet_media(self, tweet_content: List[Dict]) -> Dict:
+        temp = {}
+        for media in tweet_content:
+            media_id = media['id']
+            media_url = media['url']
+            media_caption = media['caption']
+            media_type = media['type']
+            temp.update({media_id: {'url': media_url, 'caption': media_caption, 'type': media_type}})
+        return temp
+
 async def main():
     # Twitter credentials
     load_dotenv()
@@ -299,21 +358,45 @@ async def main():
         scraper = TwitterScraper(
             credentials=credentials,
             username_to_scrape="MSC72m",
-            days_to_scrape=4
+            days_to_scrape=3,
+            headless=True
         )
         
         # Perform scraping
         tweets = await scraper.scrape_tweets()
         logger.info(f"Successfully scraped {len(tweets)} tweets")
         
-        # Print results
-        for tweet in tweets[:10]:
-            logger.info("-" * 50)
-            logger.info(f"Tweet ID: {tweet.id}")
-            logger.info(f"Date: {tweet.date}")
+        if tweets:
+            # Get tweet content
+            tweets_info = []
+            for tweet in tweets:
+                content = await scraper.get_tweet_content(tweet.id)
+                if content:
+                    tweets_info.extend(content)  # content is a list, so extend it
+            
+            # Process each tweet directly instead of trying to get media separately
+            # The media information is already in the tweet content
+            if tweets_info:
+                with open('tweets.json', 'w', encoding='utf-8') as f:
+                    json.dump(tweets_info, f, indent=4, ensure_ascii=False)
+                
+                # Log the saved tweets
+                for tweet in tweets_info:
+                    logger.info(f"Tweet ID: {tweet.get('tweetID')}, Date: {tweet.get('date')}")
+            else:
+                logger.info("No tweet content could be retrieved")
+        else:
+            logger.info("No tweets found")
+            return
             
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    
+    except KeyboardInterrupt:
+        logger.info("Scraping interrupted by user")
+    except Exception as e:
+        logger.error(f"Fatal error in main function: {str(e)}")

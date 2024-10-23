@@ -51,3 +51,4 @@ archive.zip
 # Temporary files
 .cache
 .*.sw?
+tweets.json
