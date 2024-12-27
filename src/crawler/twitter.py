@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from httpx import AsyncClient, TimeoutException, HTTPStatusError
-from httpx._exceptions import HTTPError, RequestError
 import random
 import os
 import json
@@ -14,40 +13,14 @@ import datetime
 import re
 import logging
 
+from src.database.models.pydantic_models import TwitterCredentials, Tweet
+from src.core.exceptions import TwitterAuthError, TwitterScraperError
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-@dataclass
-class TwitterCredentials:
-    """Data class to store Twitter credentials"""
-    username: str
-    password: str
-    email: str
-
-@dataclass
-class Tweet:
-    """Data class to store tweet information"""
-    id: str
-    date: datetime.datetime
-
-
-@dataclass
-class TweetMedia:
-    id: str
-    date: datetime.datetime
-    media_url: str
-    type: str
-    caption: str
-
-class TwitterAuthError(Exception):
-    """Custom exception for authentication errors"""
-    pass
-
-class TwitterScraperError(Exception):
-    """Custom exception for scraper errors"""
-    pass
 
 class TwitterAuth:
     """Handles Twitter authentication"""
@@ -104,6 +77,7 @@ class TwitterAuth:
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             raise TwitterAuthError(f"Authentication failed: {str(e)}")
+        
 
 class TwitterScraper:
     """Handles Twitter scraping operations"""
@@ -116,6 +90,7 @@ class TwitterScraper:
         self.processed_tweets = set()
         self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
         self.headless = headless
+
     def _build_search_url(self) -> str:
         """Build Twitter search URL with appropriate filters"""
         end_date = datetime.datetime.now(datetime.timezone.utc)
@@ -133,6 +108,7 @@ class TwitterScraper:
         ]
         query = "%20".join(query_parts)
         return f"https://x.com/search?q={query}&src=typed_query&f=live"
+    
 
     @asynccontextmanager
     async def _setup_browser(self) -> Browser:
@@ -348,7 +324,7 @@ async def main():
     # Twitter credentials
     load_dotenv()
     credentials = TwitterCredentials(
-        username=os.getenv("TWITTER_USERNAME"),
+        username=os.getenv("TWITTER_USERNAME", "msc72m_dev"),
         password=os.getenv("TWITTER_PASSWORD"),
         email=os.getenv("TWITTER_EMAIL"),
     )
@@ -358,8 +334,8 @@ async def main():
         scraper = TwitterScraper(
             credentials=credentials,
             username_to_scrape="MSC72m",
-            days_to_scrape=3,
-            headless=True
+            days_to_scrape=4,
+            headless=False
         )
         
         # Perform scraping
@@ -391,6 +367,7 @@ async def main():
             
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
+
 
 if __name__ == "__main__":
     try:
