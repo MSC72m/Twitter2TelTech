@@ -17,7 +17,6 @@ class Tweet(BaseModel):
     category_id: int
     content: str
     media_urls: Optional[List[str]] = None
-    date: datetime.datetime
     created_at: datetime.datetime
 
 
@@ -37,3 +36,6 @@ class TwitterAccount(BaseModel):
     last_fetched: Optional[datetime.datetime] = None
     is_active: bool
 
+class InitialTweetState(BaseModel):
+    """Pydantic model to store initial tweet state"""
+    tweets: List[Dict]
