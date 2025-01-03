@@ -224,6 +224,8 @@ class TwitterScraper:
 
     async def initial_scrape(self) -> Dict[List[Tweet]]:
         """Main method to scrape tweets"""
+        # TODO: Need to implement logic to retrive all present ids from database all at once and do local check and not query for each of them
+        # TODO: need to revamp crawling logic seems buggy
         try:
             async with self._setup_browser() as browser:
                 context = await browser.new_context()
@@ -348,6 +350,8 @@ class TweetProcessor:
         self.session = session
         self.scraper = scraper
         self.db_repo = TweetRepository(session)
+        # TODO: current aproach needs to do a query for each account, and each id need to have some logic to get them all at once and process them all locally 
+
 
     async def get_tweets(self) -> List[InitialTweetState]:
         try:
@@ -367,7 +371,7 @@ class TweetProcessor:
         except Exception as e:
             logger.error(f"Error fetching tweets: {str(e)}")
             return []
-    def parse_date(self, date_str: str) -> datetime:
+    def _parse_date(self, date_str: str) -> datetime:
         try:
             # Parse Twitter's date format
             dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %z %Y')
@@ -378,11 +382,12 @@ class TweetProcessor:
             return None
 
     def transform_tweet_objecs(self, tweets: List[InitialTweetState]) -> List[Tweet]:
+        # TODO: N+1 query problem might be happening check and resolve later
         tweet_objects = []
         for tweet in tweets:
             account_id = self.db_repo.get_id_by_username(tweet['user_screen_name'])
             category_id = self.db_repo.get_category_id_by_account_id(account_id)
-            dt = self.parse_date(tweet['date'])
+            dt = self._parse_date(tweet['date'])
             tweet_objects.append(Tweet(
                 twitter_id=tweet['tweetID'],
                 account_id=account_id,
