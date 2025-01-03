@@ -24,6 +24,12 @@ class BaseRepository(Generic[T]):
             session.add(obj)
             await session.commit()
             return obj
+    
+    async def create_all(self, objs: List[T]) -> List[T]:
+        async with self.session() as session:
+            session.add_all(objs)
+            await session.commit()
+            return objs
 
     async def update(self, obj: T) -> T:
         async with self.session() as session:

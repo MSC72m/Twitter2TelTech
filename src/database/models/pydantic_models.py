@@ -39,3 +39,13 @@ class TwitterAccount(BaseModel):
 class InitialTweetState(BaseModel):
     """Pydantic model to store initial tweet state"""
     tweets: List[Dict]
+
+
+
+class CrawlAccountDetails(BaseModel):
+    """Pydantic model to store account details"""
+    username: str
+    days_to_crawl: int
+    tweet_count: int
+
+

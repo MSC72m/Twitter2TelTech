@@ -16,7 +16,7 @@ import logging
 
 from src.database.models.pydantic_models import TwitterCredentials, Tweet, InitialTweetState
 from src.core.exceptions import TwitterAuthError, TwitterScraperError
-
+from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,17 +29,39 @@ class TwitterAuth:
     def __init__(self, credentials: TwitterCredentials):
         self.credentials: TwitterCredentials = credentials
 
-    async def _check_login_required(self, page: Page) -> bool:
+    async def _check_login_selector_present(self, page: Page) -> bool:
         """Check if login is required based on current page state"""
         try:
             login_indicator = await page.query_selector('input[autocomplete="username"], form[action="/i/flow/login"]')
-            return login_indicator is not None
-        except Exception:
+            if login_indicator:
+                logger.info("Login required")
+                return True
             return False
 
+        except Exception:
+            return False
+    
+    async def _check_auth_token_present(self, page: Page) -> bool:
+        try:
+            # Check if there is an Auth token
+            cookies = await page.context.cookies()
+            for cookie in cookies:
+                if cookie['name'] == 'auth_token':
+                    logger.info("Auth token found")
+                    return True
+            return False 
+
+
+        except Exception as e:
+            logger.error(f"Error checking auth token: {str(e)}")
+            raise
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
+            if not await self._check_login_selector_present(page) or await self._check_auth_token_present(page):
+                logger.info("No login required")
+                return True
+
             logger.info("Starting authentication process...")
 
             logger.info("Waiting for username input...")
@@ -79,18 +101,19 @@ class TwitterAuth:
             logger.error(f"Authentication error: {str(e)}")
             raise TwitterAuthError(f"Authentication failed: {str(e)}")
 
-
 class TwitterScraper:
     """Handles Twitter scraping operations"""
 
-    def __init__(self, credentials: TwitterCredentials, username_to_scrape: str, days_to_scrape: int, headless: bool = False):
+    def __init__(self, credentials: TwitterCredentials, tweet_db_repo: TweetRepository, username_to_scrape: List[str], days_to_scrape: int, headless: bool = False):
         self.credentials = credentials
-        self.username_to_scrape = username_to_scrape.strip('@')
+        self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape] 
         self.days_to_scrape = days_to_scrape
         self.cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_to_scrape)
         self.processed_tweets = set()
         self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
         self.headless = headless
+        self.tweet_db_repo = tweet_db_repo
+        self.current_account = None
 
     def _build_search_url(self) -> str:
         """Build Twitter search URL with appropriate filters"""
@@ -100,15 +123,18 @@ class TwitterScraper:
         # -filter:replies -> excludes replies
         # -filter:retweets -> excludes retweets
         # min_faves:1 -> minimum 1 like to filter out potential spam
-        query_parts = [
-            f"from:{self.username_to_scrape}",
-            "-filter:replies",
-            "-filter:retweets",
-            "min_faves:1",
-            f"until:{end_date_str}"
-        ]
-        query = "%20".join(query_parts)
-        return f"https://x.com/search?q={query}&src=typed_query&f=live"
+        queries = []
+        for username in self.username_to_scrape:
+            query_parts = [
+                f"from:{username}",
+                "-filter:replies",
+                "-filter:retweets",
+                "min_faves:1",
+                f"until:{end_date_str}"
+            ]
+            query = "%20".join(query_parts)
+            queries.append(query)
+        return queries 
 
     @asynccontextmanager
     async def _setup_browser(self) -> Browser:
@@ -196,7 +222,7 @@ class TwitterScraper:
             logger.warning(f"Scroll error: {str(e)}")
             await page.wait_for_timeout(3000)
 
-    async def scrape_tweets(self) -> List[Tweet]:
+    async def scrape_tweets(self) -> Dict[List[Tweet]]:
         """Main method to scrape tweets"""
         try:
             async with self._setup_browser() as browser:
@@ -204,66 +230,76 @@ class TwitterScraper:
                 page = await context.new_page()
                 page.set_default_timeout(60000)
                 auth = TwitterAuth(self.credentials)
+                all_tweets = {}
 
                 # Navigate to search page
-                search_url = self._build_search_url()
-                await page.goto(search_url, wait_until="domcontentloaded")
-                await auth._check_login_required(page)
-                await auth.authenticate(page)
-                logger.info(f"Navigated to search page: {search_url}")
+                search_urls = self._build_search_url()
+                for search_url in search_urls:
+                    await page.goto(search_url, wait_until="domcontentloaded")
 
-                tweets: List[Tweet] = []
-                consecutive_empty = 0
-                empty_limit = 10  # Increased limit for more thorough scanning
-                last_tweet_date = datetime.datetime.now(datetime.timezone.utc)
+                    # Authenticate if necessary
+                    if not await auth.authenticate(page):
+                        logger.error("Authentication failed")
+                        raise TwitterAuthError("Authentication failed")
 
-                while True:
-                    try:
-                        articles = await page.query_selector_all('article[data-testid="tweet"]')
+                    logger.info(f"Navigated to search page: {search_url}")
+                    self.current_account = re.findall(r'from:(\w+)', search_url)[0]
 
-                        if not articles:
-                            consecutive_empty += 1
-                            if consecutive_empty >= empty_limit:
-                                logger.info("Reached end of available tweets")
-                                break
-                            await page.wait_for_timeout(2000)
+                    account_tweets: Dict[List[Tweet]] = {} 
+                    consecutive_empty = 0
+                    empty_limit = 20 # Increased limit for more thorough scanning
+                    last_tweet_date = datetime.datetime.now(datetime.timezone.utc)
+
+                    while True:
+                        try:
+                            articles = await page.query_selector_all('article[data-testid="tweet"]')
+
+                            if not articles:
+                                consecutive_empty += 1
+                                if consecutive_empty >= empty_limit:
+                                    logger.info("Reached end of available tweets")
+                                    break
+                                await page.wait_for_timeout(2000)
+                                await self._scroll_page(page, consecutive_empty)
+                                continue
+
+                            new_tweets_found = False
+
+                            for article in articles:
+                                tweet = await self._extract_tweet_info(article)
+
+                                if tweet:
+                                    # Check if this tweet is older than our target date
+                                    if not self.tweet_db_repo.tweet_exists(tweet.id):
+                                        logger.info(f"Tweet {tweet.id} already exists in database")
+                                        continue
+
+                                    if tweet.date < self.cutoff_date:
+                                        logger.info(f"Reached cutoff date. Last tweet from: {tweet.date}")
+                                        all_tweets[self.current_account.name] = sorted(account_tweets, key=lambda x: x.date, reverse=True)
+
+                                    # Check if we've already seen this tweet
+                                    if tweet.id not in {t.id for t in account_tweets}:
+                                        account_tweets.append(tweet)
+                                        new_tweets_found = True
+                                        last_tweet_date = tweet.date
+                                        logger.info(f"Found tweet {tweet.id} from {tweet.date}")
+
+                            if new_tweets_found:
+                                consecutive_empty = 0
+                            else:
+                                consecutive_empty += 1
+
+                            logger.info(f"Collected {len(account_tweets)} tweets for account: {self.current_account.name} so far... Last tweet date: {last_tweet_date}")
                             await self._scroll_page(page, consecutive_empty)
-                            continue
 
-                        new_tweets_found = False
-
-                        for article in articles:
-                            tweet = await self._extract_tweet_info(article)
-
-                            if tweet:
-                                # Check if this tweet is older than our target date
-                                if tweet.date < self.cutoff_date:
-                                    logger.info(f"Reached cutoff date. Last tweet from: {tweet.date}")
-                                    return sorted(tweets, key=lambda x: x.date, reverse=True)
-
-                                # Check if we've already seen this tweet
-                                if tweet.id not in {t.id for t in tweets}:
-                                    tweets.append(tweet)
-                                    new_tweets_found = True
-                                    last_tweet_date = tweet.date
-                                    logger.info(f"Found tweet {tweet.id} from {tweet.date}")
-
-                        if new_tweets_found:
-                            consecutive_empty = 0
-                        else:
+                        except Exception as e:
+                            logger.error(f"Error during scraping: {str(e)}")
                             consecutive_empty += 1
+                            await page.wait_for_timeout(2000)
 
-                        logger.info(f"Collected {len(tweets)} tweets so far... Last tweet date: {last_tweet_date}")
-                        await self._scroll_page(page, consecutive_empty)
-
-                    except Exception as e:
-                        logger.error(f"Error during scraping: {str(e)}")
-                        consecutive_empty += 1
-                        await page.wait_for_timeout(2000)
-
-                # Sort tweets by date (newest first)
-                return sorted(tweets, key=lambda x: x.date, reverse=True)
-
+                    
+                return all_tweets 
         except Exception as e:
             logger.error(f"Fatal error in scrape_tweets: {str(e)}")
             raise TwitterScraperError(f"Scraping failed: {str(e)}")
@@ -368,11 +404,12 @@ async def main():
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
 
-class InsertTweets:
+class TweetProcessor:
     def __init__(self, session: AsyncSession, ):
         self.session = session
+        self.db_repo = TweetRepository(session)
 
-    def transform_tweet_objecs(self, tweets: List[InitialTweetState]) -> List[Tweet]:
+    def transform_tweet_objecs(self, tweets: List[Dict]) -> List[Tweet]:
         tweet_objects = []
         for tweet in tweets:
             tweet_objects.append(Tweet(
@@ -380,7 +417,7 @@ class InsertTweets:
                 account_id=tweet['accountID'],
                 category_id=tweet['categoryID'],
                 content=tweet['content'],
-                media_urls=tweet['media'],
+                media_urls=tweet['mediaUrls'],
                 created_at=tweet['date']
             ))
         return tweet_objects
@@ -388,16 +425,17 @@ class InsertTweets:
     async def insert_tweets(self, tweets: List[InitialTweetState]) -> bool:
         try:
             tweet_objects: List[Tweet] = self.transform_tweet_objects(tweets)
-            async with self.session() as session:
-                async with session.begin():
-                    session.add_all(tweet_objects)
-                await session.commit()
-                logger.info(f"Successfully inserted {len(tweets)} tweets")
-                return True
+            if not tweet_objects:
+                logger.info("No tweet objects to insert")
+                return False
+            await self.db_repo.create_all(tweet_objects)
+            return True
         except Exception as e:
             logger.error(f"Error inserting tweets: {str(e)}")
-            await session.rollback()
+            await self.session.rollback()
             return False
+        
+    
 
 if __name__ == "__main__":
     try:
