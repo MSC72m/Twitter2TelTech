@@ -104,8 +104,8 @@ class TwitterAuth:
 class TwitterScraper:
     """Handles Twitter scraping operations"""
 
-    def __init__(self, credentials: TwitterCredentials, tweet_db_repo: TweetRepository, username_to_scrape: List[str], days_to_scrape: int, headless: bool = False):
-        self.credentials = credentials
+    def __init__(self, auth: TwitterAuth, tweet_db_repo: TweetRepository, username_to_scrape: List[str], days_to_scrape: int, headless: bool = False):
+        self.auth = auth
         self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape] 
         self.days_to_scrape = days_to_scrape
         self.cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_to_scrape)
@@ -114,8 +114,8 @@ class TwitterScraper:
         self.headless = headless
         self.tweet_db_repo = tweet_db_repo
         self.current_account = None
-
-    def _build_search_url(self) -> str:
+        
+    def _build_search_urls(self) -> str:
         """Build Twitter search URL with appropriate filters"""
         end_date = datetime.datetime.now(datetime.timezone.utc)
         end_date_str = end_date.strftime('%Y-%m-%d')
@@ -229,19 +229,17 @@ class TwitterScraper:
                 context = await browser.new_context()
                 page = await context.new_page()
                 page.set_default_timeout(60000)
-                auth = TwitterAuth(self.credentials)
                 all_tweets = {}
 
+                # Authenticate if necessary
+                if not await self.auth.authenticate(page):
+                    logger.error("Authentication failed")
+                    raise TwitterAuthError("Authentication failed")
+
                 # Navigate to search page
-                search_urls = self._build_search_url()
+                search_urls = self._build_search_urls()
                 for search_url in search_urls:
                     await page.goto(search_url, wait_until="domcontentloaded")
-
-                    # Authenticate if necessary
-                    if not await auth.authenticate(page):
-                        logger.error("Authentication failed")
-                        raise TwitterAuthError("Authentication failed")
-
                     logger.info(f"Navigated to search page: {search_url}")
                     self.current_account = re.findall(r'from:(\w+)', search_url)[0]
 
@@ -357,18 +355,19 @@ class TwitterScraper:
         return temp
 
 async def main():
-    # Twitter credentials
-    load_dotenv()
-    credentials = TwitterCredentials(
-        username=os.getenv("TWITTER_USERNAME", "msc72m_dev"),
-        password=os.getenv("TWITTER_PASSWORD"),
-        email=os.getenv("TWITTER_EMAIL"),
-    )
-
     try:
         # Initialize scraper with credentials and target account
+        # Twitter credentials
+        load_dotenv()
+        credentials = TwitterCredentials(
+            username=os.getenv("TWITTER_USERNAME", "msc72m_dev"),
+            password=os.getenv("TWITTER_PASSWORD"),
+            email=os.getenv("TWITTER_EMAIL"),
+        )
+
+        auth = TwitterAuth(credentials)
         scraper = TwitterScraper(
-            credentials=credentials,
+            auth=auth,
             username_to_scrape="MSC72m",
             days_to_scrape=4,
             headless=False
@@ -377,30 +376,7 @@ async def main():
         # Perform scraping
         tweets = await scraper.scrape_tweets()
         logger.info(f"Successfully scraped {len(tweets)} tweets")
-
-        if tweets:
-            # Get tweet content
-            tweets_info = []
-            for tweet in tweets:
-                content = await scraper.get_tweet_content(tweet.id)
-                if content:
-                    tweets_info.extend(content)  # content is a list, so extend it
-
-            # Process each tweet directly instead of trying to get media separately
-            # The media information is already in the tweet content
-            if tweets_info:
-                with open('tweets.json', 'w', encoding='utf-8') as f:
-                    json.dump(tweets_info, f, indent=4, ensure_ascii=False)
-
-                # Log the saved tweets
-                for tweet in tweets_info:
-                    logger.info(f"Tweet ID: {tweet.get('tweetID')}, Date: {tweet.get('date')}")
-            else:
-                logger.info("No tweet content could be retrieved")
-        else:
-            logger.info("No tweets found")
-            return
-
+        
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
 
