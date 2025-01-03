@@ -10,11 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import random
 import os
 import json
-import datetime
+from datetime import datetime, timezone
 import re
 import logging
 
-from src.database.models.pydantic_models import TwitterCredentials, Tweet, InitialTweetState
+from src.database.models.pydantic_models import TweetDetails,TwitterCredentials, Tweet, InitialTweetState
 from src.core.exceptions import TwitterAuthError, TwitterScraperError
 from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
 
@@ -168,7 +168,7 @@ class TwitterScraper:
         except PlaywrightTimeoutError:
             logger.warning("Network idle timeout reached")
 
-    async def _extract_tweet_info(self, article) -> Optional[Tweet]:
+    async def _extract_tweet_info(self, article) -> Optional[TweetDetails]:
         """Extract essential information from a tweet article element"""
         try:
             article_html = await article.evaluate('element => element.innerHTML')
@@ -197,7 +197,7 @@ class TwitterScraper:
             tweet_date = tweet_date.replace(tzinfo=datetime.timezone.utc)
 
             self.processed_tweets.add(article_html)
-            return Tweet(id=tweet_id, date=tweet_date)
+            return TweetDetails(_id=tweet_id, date=tweet_date) 
 
         except Exception as e:
             logger.error(f"Error extracting tweet info: {str(e)}")
@@ -222,7 +222,7 @@ class TwitterScraper:
             logger.warning(f"Scroll error: {str(e)}")
             await page.wait_for_timeout(3000)
 
-    async def scrape_tweets(self) -> Dict[List[Tweet]]:
+    async def initial_scrape(self) -> Dict[List[Tweet]]:
         """Main method to scrape tweets"""
         try:
             async with self._setup_browser() as browser:
@@ -243,7 +243,7 @@ class TwitterScraper:
                     logger.info(f"Navigated to search page: {search_url}")
                     self.current_account = re.findall(r'from:(\w+)', search_url)[0]
 
-                    account_tweets: Dict[List[Tweet]] = {} 
+                    account_tweets: Dict[List[TweetDetails]] = {} 
                     consecutive_empty = 0
                     empty_limit = 20 # Increased limit for more thorough scanning
                     last_tweet_date = datetime.datetime.now(datetime.timezone.utc)
@@ -268,16 +268,16 @@ class TwitterScraper:
 
                                 if tweet:
                                     # Check if this tweet is older than our target date
-                                    if not self.tweet_db_repo.tweet_exists(tweet.id):
-                                        logger.info(f"Tweet {tweet.id} already exists in database")
+                                    if not self.tweet_db_repo.tweet_exists(tweet._id):
+                                        logger.info(f"Tweet {tweet._id} already exists in database")
                                         continue
 
                                     if tweet.date < self.cutoff_date:
                                         logger.info(f"Reached cutoff date. Last tweet from: {tweet.date}")
-                                        all_tweets[self.current_account.name] = sorted(account_tweets, key=lambda x: x.date, reverse=True)
+                                        all_tweets[self.current_account] = sorted(account_tweets, key=lambda x: x.date, reverse=True)
 
                                     # Check if we've already seen this tweet
-                                    if tweet.id not in {t.id for t in account_tweets}:
+                                    if tweet._id not in {t._id for t in account_tweets}:
                                         account_tweets.append(tweet)
                                         new_tweets_found = True
                                         last_tweet_date = tweet.date
@@ -288,21 +288,19 @@ class TwitterScraper:
                             else:
                                 consecutive_empty += 1
 
-                            logger.info(f"Collected {len(account_tweets)} tweets for account: {self.current_account.name} so far... Last tweet date: {last_tweet_date}")
+                            logger.info(f"Collected {len(account_tweets)} tweets for account: {self.current_account} so far... Last tweet date: {last_tweet_date}")
                             await self._scroll_page(page, consecutive_empty)
 
                         except Exception as e:
                             logger.error(f"Error during scraping: {str(e)}")
                             consecutive_empty += 1
                             await page.wait_for_timeout(2000)
-
-                    
                 return all_tweets 
         except Exception as e:
             logger.error(f"Fatal error in scrape_tweets: {str(e)}")
             raise TwitterScraperError(f"Scraping failed: {str(e)}")
 
-    async def get_tweet_content(self, tweet_id: str) -> List[Dict]:
+    async def get_tweet(self, tweet_id: str) -> List[Dict]:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json"
@@ -327,7 +325,7 @@ class TwitterScraper:
                 logger.info(f"Successfully scraped tweet {tweet_id}")
                 logger.debug(f"Tweet content: {tweet_content}")
 
-                return [tweet_content]  # Return as list to match return type
+                return tweet_content
 
         except TimeoutException as e:
             logger.error(f"Timeout while fetching tweet {tweet_id}: {str(e)}")
@@ -344,57 +342,54 @@ class TwitterScraper:
         except Exception as e:
             logger.error(f"Unexpected error fetching tweet {tweet_id}: {str(e)}")
             return []
-    async def get_tweet_media(self, tweet_content: List[Dict]) -> Dict:
-        temp = {}
-        for media in tweet_content:
-            media_id = media['id']
-            media_url = media['url']
-            media_caption = media['caption']
-            media_type = media['type']
-            temp.update({media_id: {'url': media_url, 'caption': media_caption, 'type': media_type}})
-        return temp
-
-async def main():
-    try:
-        # Initialize scraper with credentials and target account
-        # Twitter credentials
-        load_dotenv()
-        credentials = TwitterCredentials(
-            username=os.getenv("TWITTER_USERNAME", "msc72m_dev"),
-            password=os.getenv("TWITTER_PASSWORD"),
-            email=os.getenv("TWITTER_EMAIL"),
-        )
-
-        auth = TwitterAuth(credentials)
-        scraper = TwitterScraper(
-            auth=auth,
-            username_to_scrape="MSC72m",
-            days_to_scrape=4,
-            headless=False
-        )
-
-        # Perform scraping
-        tweets = await scraper.scrape_tweets()
-        logger.info(f"Successfully scraped {len(tweets)} tweets")
-        
-    except Exception as e:
-        logger.error(f"Error in main function: {str(e)}")
 
 class TweetProcessor:
-    def __init__(self, session: AsyncSession, ):
+    def __init__(self, session: AsyncSession, scraper: TwitterScraper):
         self.session = session
+        self.scraper = scraper
         self.db_repo = TweetRepository(session)
 
-    def transform_tweet_objecs(self, tweets: List[Dict]) -> List[Tweet]:
+    async def get_tweets(self) -> List[InitialTweetState]:
+        try:
+            failed = []
+            success = []
+            tweets: Dict[TweetDetails] = await self.scraper.scrape_tweets()
+            for tweet in tweets:
+                tweet_json = await self.scraper.get_tweet(tweet._id)
+                if not tweet_json:
+                    logger.error(f"Error fetching tweet {tweet._id}")
+                    failed.append(tweet._id)
+                    continue
+                success.append(tweet_json)
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error fetching tweets: {str(e)}")
+            return []
+    def parse_date(self, date_str: str) -> datetime:
+        try:
+            # Parse Twitter's date format
+            dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %z %Y')
+            # Convert to UTC
+            return dt.astimezone(timezone.utc)
+        except ValueError as e:
+            logger.error(f"Failed to parse date: {date_str}, error: {e}")
+            return None
+
+    def transform_tweet_objecs(self, tweets: List[InitialTweetState]) -> List[Tweet]:
         tweet_objects = []
         for tweet in tweets:
+            account_id = self.db_repo.get_id_by_username(tweet['user_screen_name'])
+            category_id = self.db_repo.get_category_id_by_account_id(account_id)
+            dt = self.parse_date(tweet['date'])
             tweet_objects.append(Tweet(
                 twitter_id=tweet['tweetID'],
-                account_id=tweet['accountID'],
-                category_id=tweet['categoryID'],
-                content=tweet['content'],
-                media_urls=tweet['mediaUrls'],
-                created_at=tweet['date']
+                account_id=account_id,
+                category_id=category_id,
+                content=tweet['text'],
+                media_urls=tweet['mediaURLs'],
+                created_at=dt
             ))
         return tweet_objects
 
@@ -410,13 +405,26 @@ class TweetProcessor:
             logger.error(f"Error inserting tweets: {str(e)}")
             await self.session.rollback()
             return False
-        
+
+    async def process_tweets(self) -> bool:
+        try:
+            tweets = await self._get_tweets()
+            if not tweets:
+                logger.info("No tweets to process")
+                return False
+            tweet_objects = self._transform_tweet_objects(tweets)
+            if not tweet_objects:
+                logger.info("No tweet objects to process")
+                return False
+            return await self._insert_tweets(tweet_objects)
+        except Exception as e:
+            logger.error(f"Error processing tweets: {str(e)}")
+            return False 
     
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
-
+        asyncio.run()
     except KeyboardInterrupt:
         logger.info("Scraping interrupted by user")
     except Exception as e:

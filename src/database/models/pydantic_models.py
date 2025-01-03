@@ -49,3 +49,7 @@ class CrawlAccountDetails(BaseModel):
     tweet_count: int
 
 
+class TweetDetails(BaseModel):
+    """Pydantic model to store tweet details"""
+    _id: int
+    date: datetime.datetime
