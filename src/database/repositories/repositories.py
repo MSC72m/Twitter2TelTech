@@ -3,6 +3,7 @@ from sqlalchemy.future import select, update, delete, insert
 from src.database.repositories.base_repo import BaseRepository
 from src.database.models.pydantic_models import Tweet 
 from src.database.models.models import TwitterAccount, Tweet as TweetModel
+from typing import Dict, Tuple, List, Optional, Any
 
 class TweetRepository(BaseRepository[TweetModel]):
     async def get_by_id(self, _id: int):
@@ -14,6 +15,11 @@ class TweetRepository(BaseRepository[TweetModel]):
         async with self.session() as session:
             result = await session.execute(select(TweetModel._id).where(TweetModel.twitter_id == tweet_id))
             return result.scalars().first() is not None
+    
+    async def get_all_ids(self):
+        async with self.session() as session:
+            result = await session.execute(select(TweetModel._id))
+            return result.scalars().all()
 
 
 class TwitterAccountRepository(BaseRepository[TwitterAccount]):
@@ -30,4 +36,9 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
     async def get_twitter_accounts(self):
         async with self.session() as session:
             result = await session.execute(select(TwitterAccount.username))
+            return result.scalars().all()
+
+    async def get_all_account_ids_with_category(self) -> List[Tuple[str, int, int]]:
+        async with self.session() as session:
+            result = await session.execute(select(TwitterAccount._id, TwitterAccount.category_id))
             return result.scalars().all()

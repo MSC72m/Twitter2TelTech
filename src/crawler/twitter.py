@@ -346,31 +346,13 @@ class TwitterScraper:
             return []
 
 class TweetProcessor:
-    def __init__(self, session: AsyncSession, scraper: TwitterScraper):
-        self.session = session
+    def __init__(self, scraper: TwitterScraper, tweet_repo: TweetRepository, account_repo: TwitterAccountRepository):
         self.scraper = scraper
-        self.db_repo = TweetRepository(session)
+        self.tweet_repo = tweet_repo
+        self.account_repo = account_repo
+        self.maped_account_names_to_categories = dict()
         # TODO: current aproach needs to do a query for each account, and each id need to have some logic to get them all at once and process them all locally 
 
-
-    async def get_tweets(self) -> List[InitialTweetState]:
-        try:
-            failed = []
-            success = []
-            tweets: Dict[TweetDetails] = await self.scraper.scrape_tweets()
-            for tweet in tweets:
-                tweet_json = await self.scraper.get_tweet(tweet._id)
-                if not tweet_json:
-                    logger.error(f"Error fetching tweet {tweet._id}")
-                    failed.append(tweet._id)
-                    continue
-                success.append(tweet_json)
-
-            return success
-
-        except Exception as e:
-            logger.error(f"Error fetching tweets: {str(e)}")
-            return []
     def _parse_date(self, date_str: str) -> datetime:
         try:
             # Parse Twitter's date format
@@ -381,12 +363,39 @@ class TweetProcessor:
             logger.error(f"Failed to parse date: {date_str}, error: {e}")
             return None
 
-    def transform_tweet_objecs(self, tweets: List[InitialTweetState]) -> List[Tweet]:
-        # TODO: N+1 query problem might be happening check and resolve later
+    async def _get_tweets(self) -> List[InitialTweetState]:
+        try:
+            failed = [] 
+            success = []
+            tweets: Dict[TweetDetails] = await self.scraper.initial_scrape()
+            for tweet in tweets:
+                tweet_json = await self.scraper.get_tweet(tweet._id)
+                if not tweet_json:
+                    logger.error(f"Error fetching tweet {tweet._id}")
+                    failed.append(tweet._id)
+                    continue
+                success.append(tweet_json)
+                self.present_ids.add(tweet._id)
+            return success
+        except Exception as e:
+            logger.error(f"Error fetching tweets: {str(e)}")
+            return []
+
+    async def _map_ids_to_categories(self):
+        try:
+            account_name_category_list = await self.account_repo.get_all_name_category()
+            self.maped_account_names_to_categories = {
+                account_name: (account_id, category) for account_id, account_name, category in account_name_category_list
+            }
+            return 
+        except Exception as e: 
+            logger.error(f"Error mapping ids to categories: {str(e)}")
+            raise
+
+    def _transform_tweet_objects(self, tweets: List[InitialTweetState]) -> List[Tweet]:
         tweet_objects = []
         for tweet in tweets:
-            account_id = self.db_repo.get_id_by_username(tweet['user_screen_name'])
-            category_id = self.db_repo.get_category_id_by_account_id(account_id)
+            account_id, category_id = self.maped_account_names_to_categories[tweet['user_name']]
             dt = self._parse_date(tweet['date'])
             tweet_objects.append(Tweet(
                 twitter_id=tweet['tweetID'],
@@ -398,13 +407,13 @@ class TweetProcessor:
             ))
         return tweet_objects
 
-    async def insert_tweets(self, tweets: List[InitialTweetState]) -> bool:
+    async def _insert_tweets(self, tweets: List[InitialTweetState]) -> bool:
         try:
             tweet_objects: List[Tweet] = self.transform_tweet_objects(tweets)
             if not tweet_objects:
                 logger.info("No tweet objects to insert")
                 return False
-            await self.db_repo.create_all(tweet_objects)
+            await self.tweet_repo.create_all(tweet_objects)
             return True
         except Exception as e:
             logger.error(f"Error inserting tweets: {str(e)}")
