@@ -364,7 +364,7 @@ class TweetProcessor:
         try:
             failed = [] 
             success = []
-            tweets: Dict[TweetDetails] = await self.scraper.initial_scrape()
+            tweets: Dict[str, TweetDetails] = await self.scraper.initial_scrape()
             for tweet in tweets:
                 tweet_json = await self.scraper.get_tweet(tweet._id)
                 if not tweet_json:
