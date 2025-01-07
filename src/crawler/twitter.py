@@ -87,8 +87,7 @@ class TwitterAuth:
 
             await page.wait_for_timeout(7000)
 
-
-            # Verify login success
+# Verify login success
             try:
                 await page.wait_for_selector('[data-testid="AppTabBar_Home_Link"], article[data-testid="tweet"]', timeout=10000)
                 logger.info("Login successful")
@@ -109,11 +108,12 @@ class TwitterScraper:
         self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape] 
         self.days_to_scrape = days_to_scrape
         self.cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_to_scrape)
-        self.processed_tweets = set()
+        self.processed_ids = set()
         self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
         self.headless = headless
         self.tweet_db_repo = tweet_db_repo
         self.current_account = None
+
         
     def _build_search_urls(self) -> str:
         """Build Twitter search URL with appropriate filters"""
@@ -172,8 +172,6 @@ class TwitterScraper:
         """Extract essential information from a tweet article element"""
         try:
             article_html = await article.evaluate('element => element.innerHTML')
-            if article_html in self.processed_tweets:
-                return None
 
             # Get tweet ID
             link = await article.query_selector('a[href*="/status/"]')
@@ -196,7 +194,6 @@ class TwitterScraper:
             tweet_date = datetime.datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%fZ')
             tweet_date = tweet_date.replace(tzinfo=datetime.timezone.utc)
 
-            self.processed_tweets.add(article_html)
             return TweetDetails(_id=tweet_id, date=tweet_date) 
 
         except Exception as e:
@@ -232,6 +229,7 @@ class TwitterScraper:
                 page = await context.new_page()
                 page.set_default_timeout(60000)
                 all_tweets = {}
+                self.processed_ids = await self.tweet_db_repo.get_all_ids()
 
                 # Authenticate if necessary
                 if not await self.auth.authenticate(page):
@@ -267,10 +265,9 @@ class TwitterScraper:
 
                             for article in articles:
                                 tweet = await self._extract_tweet_info(article)
-
                                 if tweet:
                                     # Check if this tweet is older than our target date
-                                    if not self.tweet_db_repo.tweet_exists(tweet._id):
+                                    if tweet._id in self.processed_ids:
                                         logger.info(f"Tweet {tweet._id} already exists in database")
                                         continue
 
@@ -281,6 +278,7 @@ class TwitterScraper:
                                     # Check if we've already seen this tweet
                                     if tweet._id not in {t._id for t in account_tweets}:
                                         account_tweets.append(tweet)
+                                        self.processed_ids.add(tweet._id)
                                         new_tweets_found = True
                                         last_tweet_date = tweet.date
                                         logger.info(f"Found tweet {tweet.id} from {tweet.date}")
@@ -351,7 +349,6 @@ class TweetProcessor:
         self.tweet_repo = tweet_repo
         self.account_repo = account_repo
         self.maped_account_names_to_categories = dict()
-        # TODO: current aproach needs to do a query for each account, and each id need to have some logic to get them all at once and process them all locally 
 
     def _parse_date(self, date_str: str) -> datetime:
         try:
