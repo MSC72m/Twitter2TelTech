@@ -57,7 +57,7 @@ class TwitterAuth:
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
-            await asyncio.sleep(6)
+            await asyncio.sleep(7)
             if not await self._check_login_selector_present(page):
                 logger.info("No login required")
                 return True
@@ -87,8 +87,8 @@ class TwitterAuth:
 
             await page.wait_for_timeout(7000)
 
-# Verify login success
             try:
+                # Verify login success
                 await page.wait_for_selector('[data-testid="AppTabBar_Home_Link"], article[data-testid="tweet"]', timeout=10000)
                 logger.info("Login successful")
                 return True
@@ -99,6 +99,7 @@ class TwitterAuth:
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             raise TwitterAuthError(f"Authentication failed: {str(e)}")
+
 
 class TwitterScraper:
     """Handles Twitter scraping operations"""
