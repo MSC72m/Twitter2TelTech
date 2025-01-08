@@ -3,28 +3,26 @@ from sqlalchemy import Column, String, Integer, Boolean, UUID, ForeignKey, Text,
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.sqlite import JSON
 from uuid import uuid4
-
 from src.database.base import Base
 
 # Association tables for many-to-many relationships
 user_category_subscriptions = Table(
     'user_category_subscriptions',
     Base.metadata,
-    Column('user_id', UUID, ForeignKey('users._id')),
-    Column('category_id', Integer, ForeignKey('categories._id'))
+    Column('user_id', UUID, ForeignKey('users.id')),
+    Column('category_id', Integer, ForeignKey('categories.id'))
 )
 
 user_account_subscriptions = Table(
     'user_account_subscriptions',
     Base.metadata,
     Column('user_id', UUID, ForeignKey('users.id')),
-    Column('account_id', Integer, ForeignKey('twitter_accounts._id'))
+    Column('account_id', Integer, ForeignKey('twitter_accounts.id'))
 )
 
 class User(Base):
     __tablename__ = 'users'
-
-    _id = Column(UUID, primary_key=True, default=uuid4)
+    id = Column(UUID, primary_key=True, default=uuid4)
     telegram_id = Column(Integer, unique=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
@@ -41,8 +39,7 @@ class User(Base):
 
 class TwitterAccount(Base):
     __tablename__ = 'twitter_accounts'
-
-    _id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     display_name = Column(String)
     last_fetched = Column(DateTime)
@@ -53,16 +50,15 @@ class TwitterAccount(Base):
 
 class Tweet(Base):
     __tablename__ = 'tweets'
-
-    _id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True)
     twitter_id = Column(String, unique=True, nullable=False)
     text = Column(Text)
     created_at = Column(DateTime, nullable=False)
     media_urls = Column(JSON)  # Store as JSON array
     
     # Foreign Keys
-    account_id = Column(Integer, ForeignKey('twitter_accounts.ـid'))
-    category_id = Column(Integer, ForeignKey('categories.ـid'))
+    account_id = Column(Integer, ForeignKey('twitter_accounts.id'))
+    category_id = Column(Integer, ForeignKey('categories.id'))
     
     # Relationships
     account = relationship("TwitterAccount", back_populates="tweets")
@@ -71,8 +67,7 @@ class Tweet(Base):
 
 class Category(Base):
     __tablename__ = 'categories'
-
-    _id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
     description = Column(Text)
     is_active = Column(Boolean, default=True)
@@ -82,8 +77,7 @@ class Category(Base):
 
 class DeliveredTweet(Base):
     __tablename__ = 'delivered_tweets'
-
-    _id = Column(Integer, primary_key=True)
-    user_id = Column(UUID, ForeignKey('users._id'))
-    tweet_id = Column(Integer, ForeignKey('tweets._id'))
+    id = Column(Integer, primary_key=True)
+    user_id = Column(UUID, ForeignKey('users.id'))
+    tweet_id = Column(Integer, ForeignKey('tweets.id'))
     delivered_at = Column(DateTime, default=datetime.utcnow)

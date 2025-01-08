@@ -1,15 +1,13 @@
-from dotenv import load_dotenv
-import os
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from src.database.base import Base
+from contextlib import asynccontextmanager
+
+from src.core.config import DB_CONFIG 
 
 logger = logging.getLogger(__name__)
-load_dotenv()
 
-DB_URL = os.getenv("DB_URL")
-
+DB_URL = DB_CONFIG.db_url
 # Use aiosqlite for async support
 engine = create_async_engine(DB_URL, echo=True)
 
@@ -23,17 +21,19 @@ AsyncSessionLocal = sessionmaker(
 )
 
 async def init_db():
+    from src.database.models.models import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+@asynccontextmanager
 async def get_session():
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        finally:
-            await session.close()
-
-
+            await session.commit()
+        except Exception as e:
+            await session.rollback()
+            raise
 
 if __name__ == "__main__":
     import asyncio

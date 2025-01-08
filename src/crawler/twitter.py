@@ -1,17 +1,12 @@
 import asyncio
-
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
 from typing import List, Optional, Dict
-from pathlib import Path
-from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from httpx import AsyncClient, TimeoutException, HTTPStatusError
 from sqlalchemy.ext.asyncio import AsyncSession
 import random
-import os
-import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 import logging
 
@@ -22,7 +17,6 @@ from src.database.repositories.repositories import TweetRepository, TwitterAccou
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-load_dotenv()
 
 
 class TwitterAuth:
@@ -68,7 +62,7 @@ class TwitterAuth:
 
             logger.info("Waiting for username input...")
             await page.wait_for_selector('input[autocomplete="username"]', timeout=10000)
-            await page.fill('input[autocomplete="username"]', "msc72m_dev")#self.credentials.username)
+            await page.fill('input[autocomplete="username"]', self.credentials.username)#self.credentials.username)
 
             await page.click('button[role="button"]:has-text("Next")')
 
@@ -109,8 +103,8 @@ class TwitterScraper:
         self.auth = auth
         self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape] 
         self.days_to_scrape = days_to_scrape
-        self.cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days_to_scrape)
         self.processed_ids = set()
+        self.cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_scrape)
         self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
         self.headless = headless
         self.tweet_db_repo = tweet_db_repo
@@ -221,10 +215,8 @@ class TwitterScraper:
             logger.warning(f"Scroll error: {str(e)}")
             await page.wait_for_timeout(3000)
 
-    async def initial_scrape(self) -> Dict[List[Tweet]]:
+    async def initial_scrape(self) -> Dict[str, List[Tweet]]:
         """Main method to scrape tweets"""
-        # TODO: Need to implement logic to retrive all present ids from database all at once and do local check and not query for each of them
-        # TODO: need to revamp crawling logic seems buggy
         try:
             async with self._setup_browser() as browser:
                 context = await browser.new_context()
@@ -245,9 +237,9 @@ class TwitterScraper:
                     logger.info(f"Navigated to search page: {search_url}")
                     self.current_account = re.findall(r'from:(\w+)', search_url)[0]
 
-                    account_tweets: Dict[List[TweetDetails]] = {} 
+                    account_tweets: Dict[str, List[TweetDetails]] = {} 
                     consecutive_empty = 0
-                    empty_limit = 20 # Increased limit for more thorough scanning
+                    empty_limit = 40# Increased limit for more thorough scanning
                     last_tweet_date = datetime.datetime.now(datetime.timezone.utc)
 
                     while True:
@@ -256,9 +248,6 @@ class TwitterScraper:
 
                             if not articles:
                                 consecutive_empty += 1
-                                if consecutive_empty >= empty_limit:
-                                    logger.info("Reached end of available tweets")
-                                    break
                                 await page.wait_for_timeout(2000)
                                 await self._scroll_page(page, consecutive_empty)
                                 continue
@@ -291,6 +280,9 @@ class TwitterScraper:
                                 consecutive_empty += 1
 
                             logger.info(f"Collected {len(account_tweets)} tweets for account: {self.current_account} so far... Last tweet date: {last_tweet_date}")
+                            if consecutive_empty >= empty_limit:
+                                logger.info("Reached end of available tweets")
+                                break
                             await self._scroll_page(page, consecutive_empty)
 
                         except Exception as e:
@@ -435,10 +427,35 @@ class TweetProcessor:
             return False 
     
 
-if __name__ == "__main__":
+async def main():
+    from src.database.db import get_session
+    from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
+    from src.database.models.pydantic_models import TwitterCredentials
+    from src.core.config import TWITTER_CREDENTIALS 
+
     try:
-        asyncio.run()
-    except KeyboardInterrupt:
-        logger.info("Scraping interrupted by user")
+        # Initialize repositories
+        logger.info("Initializing session")
+        async with get_session() as session:
+            logger.info("Initialized session")
+            tweet_repo = TweetRepository(session, Tweet)
+            account_repo = TwitterAccountRepository(session, Tweet)
+
+            # Initialize Twitter scraper
+            auth = TwitterAuth(TwitterCredentials(**TWITTER_CREDENTIALS.model_dump()))
+            scraper = TwitterScraper(auth, tweet_repo, ["msc72m"], 7, headless=False)
+            processor = TweetProcessor(scraper, tweet_repo, account_repo)
+
+            # Process tweets
+            await processor.process_tweets()
+
+
+            return None
+
     except Exception as e:
-        logger.error(f"Fatal error in main function: {str(e)}")
+        logger.error(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())

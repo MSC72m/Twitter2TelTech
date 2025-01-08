@@ -11,7 +11,7 @@ class TwitterCredentials(BaseModel):
 
 class Tweet(BaseModel):
     """Pydantic model to store tweet information"""
-    _id: int 
+    id: int 
     twitter_id: str
     account_id: int
     category_id: int
@@ -22,7 +22,7 @@ class Tweet(BaseModel):
 
 class Category(BaseModel):
     """Pydantic model to store category information"""
-    _id: int
+    id: int
     name: str
     description: str
     is_active: bool
@@ -30,7 +30,7 @@ class Category(BaseModel):
 
 class TwitterAccount(BaseModel):
     """Pydantic model to store Twitter account information"""
-    _id: int
+    id: int
     username: str
     display_name: str
     last_fetched: Optional[datetime.datetime] = None
@@ -51,5 +51,9 @@ class CrawlAccountDetails(BaseModel):
 
 class TweetDetails(BaseModel):
     """Pydantic model to store tweet details"""
-    _id: int
+    id: int
     date: datetime.datetime
+
+
+class DBConfig(BaseModel):
+    db_url: str
