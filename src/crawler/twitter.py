@@ -54,7 +54,7 @@ class TwitterAuth:
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
-            if not await self._check_login_selector_present(page) or await self._check_auth_token_present(page):
+            if not await self._check_login_selector_present(page) and not await self._check_auth_token_present(page):
                 logger.info("No login required")
                 return True
 
@@ -113,7 +113,7 @@ class TwitterScraper:
         
     def _build_search_urls(self) -> str:
         """Build Twitter search URL with appropriate filters"""
-        end_date = datetime.datetime.now(datetime.timezone.utc)
+        end_date = datetime.now(timezone.utc)
         end_date_str = end_date.strftime('%Y-%m-%d')
 
         # -filter:replies -> excludes replies
@@ -187,8 +187,8 @@ class TwitterScraper:
                 return None
 
             datetime_str = await time_element.get_attribute('datetime')
-            tweet_date = datetime.datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-            tweet_date = tweet_date.replace(tzinfo=datetime.timezone.utc)
+            tweet_date = datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+            tweet_date = tweet_date.replace(tzinfo=timezone.utc)
 
             return TweetDetails(_id=tweet_id, date=tweet_date) 
 
@@ -224,12 +224,6 @@ class TwitterScraper:
                 page.set_default_timeout(60000)
                 all_tweets = {}
                 self.processed_ids = await self.tweet_db_repo.get_all_ids()
-
-                # Authenticate if necessary
-                if not await self.auth.authenticate(page):
-                    logger.error("Authentication failed")
-                    raise TwitterAuthError("Authentication failed")
-
                 # Navigate to search page
                 search_urls = self._build_search_urls()
                 for search_url in search_urls:
@@ -237,10 +231,15 @@ class TwitterScraper:
                     logger.info(f"Navigated to search page: {search_url}")
                     self.current_account = re.findall(r'from:(\w+)', search_url)[0]
 
+                    # Authenticate if necessary
+                    if not await self.auth.authenticate(page):
+                        logger.error("Authentication failed")
+                        raise TwitterAuthError("Authentication failed")
+
                     account_tweets: Dict[str, List[TweetDetails]] = {} 
                     consecutive_empty = 0
                     empty_limit = 40# Increased limit for more thorough scanning
-                    last_tweet_date = datetime.datetime.now(datetime.timezone.utc)
+                    last_tweet_date = datetime.now(timezone.utc)
 
                     while True:
                         try:
@@ -438,8 +437,8 @@ async def main():
         logger.info("Initializing session")
         async with get_session() as session:
             logger.info("Initialized session")
-            tweet_repo = TweetRepository(session, Tweet)
-            account_repo = TwitterAccountRepository(session, Tweet)
+            tweet_repo = TweetRepository(Tweet, session)
+            account_repo = TwitterAccountRepository(Tweet, session)
 
             # Initialize Twitter scraper
             auth = TwitterAuth(TwitterCredentials(**TWITTER_CREDENTIALS.model_dump()))
