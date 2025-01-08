@@ -28,12 +28,13 @@ class TwitterAuth:
     async def _check_login_selector_present(self, page: Page) -> bool:
         """Check if login is required based on current page state"""
         try:
+            await page.wait_for_load_state(timeout=10000)
             login_indicator = await page.query_selector('input[autocomplete="username"], form[action="/i/flow/login"]')
             if login_indicator:
                 logger.info("Login required")
-                return True
+                return True 
             logger.info("No login required")
-            return False
+            return False 
 
         except Exception:
             return False
@@ -52,9 +53,11 @@ class TwitterAuth:
         except Exception as e:
             logger.error(f"Error checking auth token: {str(e)}")
             raise
+
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
+            await asyncio.sleep(6)
             if not await self._check_login_selector_present(page):
                 logger.info("No login required")
                 return True
@@ -186,7 +189,7 @@ class TwitterScraper:
             tweet_date = datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%fZ')
             tweet_date = tweet_date.replace(tzinfo=timezone.utc)
 
-            return TweetDetails(_id=tweet_id, date=tweet_date) 
+            return TweetDetails(id=tweet_id, date=tweet_date) 
 
         except Exception as e:
             logger.error(f"Error extracting tweet info: {str(e)}")
@@ -213,6 +216,7 @@ class TwitterScraper:
 
     async def initial_scrape(self) -> Dict[str, List[Tweet]]:
         """Main method to scrape tweets"""
+        # TODO: Error in cut off logic and how twitter handles dates need to refactor the logic
         try:
             async with self._setup_browser() as browser:
                 context = await browser.new_context()
@@ -239,6 +243,10 @@ class TwitterScraper:
 
                     while True:
                         try:
+                            if consecutive_empty >= empty_limit:
+                                logger.info("Reached end of available tweets")
+                                break
+
                             articles = await page.query_selector_all('article[data-testid="tweet"]')
 
                             if not articles:
@@ -253,8 +261,8 @@ class TwitterScraper:
                                 tweet = await self._extract_tweet_info(article)
                                 if tweet:
                                     # Check if this tweet is older than our target date
-                                    if tweet._id in self.processed_ids:
-                                        logger.info(f"Tweet {tweet._id} already exists in database")
+                                    if tweet.id in self.processed_ids:
+                                        logger.info(f"Tweet {tweet.id} already exists in database")
                                         continue
 
                                     if tweet.date < self.cutoff_date:
@@ -262,9 +270,9 @@ class TwitterScraper:
                                         all_tweets[self.current_account] = sorted(account_tweets, key=lambda x: x.date, reverse=True)
 
                                     # Check if we've already seen this tweet
-                                    if tweet._id not in {t._id for t in account_tweets}:
-                                        account_tweets.append(tweet)
-                                        self.processed_ids.add(tweet._id)
+                                    if tweet.id not in {t.id for t in account_tweets}:
+                                        account_tweets[self.current_account].append(tweet)
+                                        self.processed_ids.add(tweet.id)
                                         new_tweets_found = True
                                         last_tweet_date = tweet.date
                                         logger.info(f"Found tweet {tweet.id} from {tweet.date}")
@@ -354,14 +362,14 @@ class TweetProcessor:
             failed = [] 
             success = []
             tweets: Dict[str, TweetDetails] = await self.scraper.initial_scrape()
-            for tweet in tweets:
-                tweet_json = await self.scraper.get_tweet(tweet._id)
+            for tweet in tweets.values():
+                tweet_json = await self.scraper.get_tweet(tweet.id)
                 if not tweet_json:
-                    logger.error(f"Error fetching tweet {tweet._id}")
-                    failed.append(tweet._id)
+                    logger.error(f"Error fetching tweet {tweet.id}")
+                    failed.append(tweet.id)
                     continue
                 success.append(tweet_json)
-                self.present_ids.add(tweet._id)
+                self.present_ids.add(tweet.id)
             return success
         except Exception as e:
             logger.error(f"Error fetching tweets: {str(e)}")
