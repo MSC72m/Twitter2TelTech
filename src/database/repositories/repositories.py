@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 class TweetRepository(BaseRepository[TweetModel]):
     async def get_by_id(self, _id: int):
         try:
-            logger.info(f"Fetching tweet by ID: {_id}")
+            logger.debug(f"Fetching tweet by ID: {_id}")
             result = await self.session.execute(select(TweetModel).filter(TweetModel.id == _id))
             tweet = result.scalars().first()
             if tweet:
-                logger.info(f"Found tweet: {tweet}")
+                logger.debug(f"Found tweet: {tweet}")
             else:
                 logger.warning(f"No tweet found with ID: {_id}")
             return tweet
@@ -25,10 +25,10 @@ class TweetRepository(BaseRepository[TweetModel]):
 
     async def tweet_exists(self, tweet_id: str):
         try:
-            logger.info(f"Checking if tweet exists with ID: {tweet_id}")
+            logger.debug(f"Checking if tweet exists with ID: {tweet_id}")
             result = await self.session.execute(select(TweetModel.id).where(TweetModel.twitter_id == tweet_id))
             exists = result.scalars().first() is not None
-            logger.info(f"Tweet exists: {exists}")
+            logger.debug(f"Tweet exists: {exists}")
             return exists
         except Exception as e:
             logger.error(f"Error in tweet_exists: {e}")
@@ -36,10 +36,10 @@ class TweetRepository(BaseRepository[TweetModel]):
 
     async def get_all_ids(self):
         try:
-            logger.info("Fetching all tweet IDs")
+            logger.debug("Fetching all tweet IDs")
             result = await self.session.execute(select(TweetModel.twitter_id))
             ids = result.scalars().all()
-            logger.info(f"Fetched {len(ids)} tweet IDs")
+            logger.debug(f"Fetched {len(ids)} tweet IDs")
             return ids
         except Exception as e:
             logger.error(f"Error in get_all_ids: {e}")
@@ -49,11 +49,11 @@ class TweetRepository(BaseRepository[TweetModel]):
 class TwitterAccountRepository(BaseRepository[TwitterAccount]):
     async def get_id_by_username(self, username: str):
         try:
-            logger.info(f"Fetching account ID for username: {username}")
+            logger.debug(f"Fetching account ID for username: {username}")
             result = await self.session.execute(select(TwitterAccount.id).where(TwitterAccount.username == username))
             account_id = result.scalars().first()
             if account_id:
-                logger.info(f"Found account ID: {account_id}")
+                logger.debug(f"Found account ID: {account_id}")
             else:
                 logger.warning(f"No account found for username: {username}")
             return account_id
@@ -77,10 +77,10 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
 
     async def get_twitter_accounts(self):
         try:
-            logger.info("Fetching all Twitter accounts")
+            logger.debug("Fetching all Twitter accounts")
             result = await self.session.execute(select(TwitterAccount.username))
             accounts = result.scalars().all()
-            logger.info(f"Fetched {len(accounts)} accounts")
+            logger.debug(f"Fetched {len(accounts)} accounts")
             return accounts
         except Exception as e:
             logger.error(f"Error in get_twitter_accounts: {e}")
@@ -88,7 +88,7 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
 
     async def get_all_account_ids_with_category(self) -> List[Tuple[int, str, int]]:
         try:
-            logger.info("Fetching all account IDs with categories")
+            logger.debug("Fetching all account IDs with categories")
             result = await self.session.execute(select(TwitterAccount.id, TwitterAccount.username, TwitterAccount.category_id))
             accounts = result.all()
             logger.info(f"Fetched {len(accounts)} accounts with categories")
@@ -101,13 +101,13 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
 class UserRepository(BaseRepository[User]):
     async def get_all_subscribed_categories(self, user_id: int) -> List[Tuple[str, int]]:
         try:
-            logger.info(f"Fetching all subscribed categories for user ID: {user_id}")
+            logger.debug(f"Fetching all subscribed categories for user ID: {user_id}")
             result = await self.session.execute(
                 select(user_category_subscriptions.c.account_id, user_category_subscriptions.c.category_id)
                 .where(user_category_subscriptions.c.user_id == user_id)
             )
             categories = result.all()
-            logger.info(f"Fetched {len(categories)} subscribed categories")
+            logger.debug(f"Fetched {len(categories)} subscribed categories")
             return categories
         except Exception as e:
             logger.error(f"Error in get_all_subscribed_categories: {e}")
@@ -115,16 +115,15 @@ class UserRepository(BaseRepository[User]):
 
     async def get_all_subscribed_accounts(self, user_id: int) -> List[int]:
         try:
-            logger.info(f"Fetching all subscribed accounts for user ID: {user_id}")
+            logger.debug(f"Fetching all subscribed accounts for user ID: {user_id}")
             result = await self.session.execute(
                 select(user_account_subscriptions.c.account_id)
                 .where(user_account_subscriptions.c.user_id == user_id)
             )
             accounts = result.scalars().all()
-            logger.info(f"Fetched {len(accounts)} subscribed accounts")
+            logger.debug(f"Fetched {len(accounts)} subscribed accounts")
             return accounts
         except Exception as e:
             logger.error(f"Error in get_all_subscribed_accounts: {e}")
             raise
 
-        

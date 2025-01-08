@@ -29,10 +29,10 @@ class BaseRepository(Generic[T]):
 
     async def get_all(self) -> List[T]:
         try:
-            logger.info(f"Fetching all {self.model.__name__} entities")
+            logger.debug(f"Fetching all {self.model.__name__} entities")
             result = await self.session.execute(select(self.model))
             entities = result.scalars().all()
-            logger.info(f"Fetched {len(entities)} {self.model.__name__} entities")
+            logger.debug(f"Fetched {len(entities)} {self.model.__name__} entities")
             return entities
         except Exception as e:
             logger.error(f"Error in get_all: {e}")
@@ -40,10 +40,10 @@ class BaseRepository(Generic[T]):
 
     async def create(self, obj: T) -> T:
         try:
-            logger.info(f"Creating {self.model.__name__}: {obj}")
+            logger.debug(f"Creating {self.model.__name__}: {obj}")
             self.session.add(obj)
             await self.session.commit()
-            logger.info(f"Created {self.model.__name__}: {obj}")
+            logger.debug(f"Created {self.model.__name__}: {obj}")
             return obj
         except Exception as e:
             logger.error(f"Error in create: {e}")
@@ -51,10 +51,10 @@ class BaseRepository(Generic[T]):
 
     async def create_all(self, objs: List[T]) -> List[T]:
         try:
-            logger.info(f"Creating multiple {self.model.__name__} entities")
+            logger.debug(f"Creating multiple {self.model.__name__} entities")
             self.session.add_all(objs)
             await self.session.commit()
-            logger.info(f"Created {len(objs)} {self.model.__name__} entities")
+            logger.debug(f"Created {len(objs)} {self.model.__name__} entities")
             return objs
         except Exception as e:
             logger.error(f"Error in create_all: {e}")
@@ -62,10 +62,10 @@ class BaseRepository(Generic[T]):
 
     async def update(self, obj: T) -> T:
         try:
-            logger.info(f"Updating {self.model.__name__}: {obj}")
+            logger.debug(f"Updating {self.model.__name__}: {obj}")
             await self.session.merge(obj)
             await self.session.commit()
-            logger.info(f"Updated {self.model.__name__}: {obj}")
+            logger.debug(f"Updated {self.model.__name__}: {obj}")
             return obj
         except Exception as e:
             logger.error(f"Error in update: {e}")
@@ -73,11 +73,10 @@ class BaseRepository(Generic[T]):
 
     async def delete(self, obj: T) -> None:
         try:
-            logger.info(f"Deleting {self.model.__name__}: {obj}")
+            logger.debug(f"Deleting {self.model.__name__}: {obj}")
             await self.session.execute(delete(self.model).where(self.model.id == obj.id))
             await self.session.commit()
-            logger.info(f"Deleted {self.model.__name__}: {obj}")
+            logger.debug(f"Deleted {self.model.__name__}: {obj}")
         except Exception as e:
             logger.error(f"Error in delete: {e}")
             raise
-        
