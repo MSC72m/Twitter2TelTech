@@ -1,4 +1,5 @@
 import asyncio
+
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
 from typing import List, Optional, Dict
 from pathlib import Path
@@ -21,6 +22,7 @@ from src.database.repositories.repositories import TweetRepository, TwitterAccou
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+load_dotenv()
 
 
 class TwitterAuth:

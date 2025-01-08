@@ -43,6 +43,8 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
             result = await session.execute(select(TwitterAccount._id, TwitterAccount.category_id))
             return result.scalars().all()
 
+
+
 class UserRepository(BaseRepository[User]):
     async def get_all_subscribed_categories(self, user_id: int) -> List[Tuple[str, int]]:
         async with self.session() as session:
@@ -53,3 +55,4 @@ class UserRepository(BaseRepository[User]):
         async with self.session() as session:
             result = await session.execute(user_account_subscriptions.select(user_account_subscriptions.c.account_id).where(user_account_subscriptions.c.user_id == user_id))
             return result.scalars().all()
+
