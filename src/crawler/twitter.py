@@ -32,6 +32,7 @@ class TwitterAuth:
             if login_indicator:
                 logger.info("Login required")
                 return True
+            logger.info("No login required")
             return False
 
         except Exception:
@@ -54,7 +55,7 @@ class TwitterAuth:
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
-            if not await self._check_login_selector_present(page) and not await self._check_auth_token_present(page):
+            if not await self._check_login_selector_present(page):
                 logger.info("No login required")
                 return True
 
@@ -111,14 +112,9 @@ class TwitterScraper:
         self.current_account = None
 
         
-    def _build_search_urls(self) -> str:
-        """Build Twitter search URL with appropriate filters"""
+    def _build_search_urls(self) -> List[str]:
         end_date = datetime.now(timezone.utc)
         end_date_str = end_date.strftime('%Y-%m-%d')
-
-        # -filter:replies -> excludes replies
-        # -filter:retweets -> excludes retweets
-        # min_faves:1 -> minimum 1 like to filter out potential spam
         queries = []
         for username in self.username_to_scrape:
             query_parts = [
@@ -129,8 +125,8 @@ class TwitterScraper:
                 f"until:{end_date_str}"
             ]
             query = "%20".join(query_parts)
-            queries.append(query)
-        return queries 
+            queries.append(f"https://twitter.com/search?q={query}")
+        return queries
 
     @asynccontextmanager
     async def _setup_browser(self) -> Browser:
