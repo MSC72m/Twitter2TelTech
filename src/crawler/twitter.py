@@ -116,6 +116,8 @@ class TwitterScraper:
 
         
     def _build_search_urls(self) -> List[str]:
+        # TODO: Refactor the url search logic to use since keyword inorder to filter tweets for a certain date and sort the query 
+        # TODO: Add logic to sort tweets by date from newest to the oldest here and remove date logic from scroling and cuttof and bake it into this search_url with help of gpt
         end_date = datetime.now(timezone.utc)
         end_date_str = end_date.strftime('%Y-%m-%d')
         queries = []
@@ -124,11 +126,10 @@ class TwitterScraper:
                 f"from:{username}",
                 "-filter:replies",
                 "-filter:retweets",
-                "min_faves:1",
                 f"until:{end_date_str}"
             ]
             query = "%20".join(query_parts)
-            queries.append(f"https://twitter.com/search?q={query}")
+            queries.append(f"https://twitter.com/search?q={query}&src=typed_query&f=live")
         return queries
 
     @asynccontextmanager
