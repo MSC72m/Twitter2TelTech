@@ -26,28 +26,22 @@ async def download_content(self, url: str) -> List[Dict]:
             tweet_content = response.json()
 
             if not tweet_content:
-                logger.info(f"No tweet content found for tweet ID {tweet_id}")
+                logger.error(f"No tweet content found for url: {url}")
                 return []
-
-            logger.info(f"Successfully scraped tweet {tweet_id}")
-            logger.debug(f"Tweet content: {tweet_content}")
 
             return tweet_content
 
     except TimeoutException as e:
-        logger.error(f"Timeout while fetching tweet {tweet_id}: {str(e)}")
+        logger.error(f"Timeout while fetching url {url}: {str(e)}")
         return []
 
     except HTTPStatusError as e:
         error_msg = f"HTTP {e.response.status_code}"
-        if e.response.status_code == 404:
-            logger.info(f"Tweet {tweet_id} not found")
-        else:
-            logger.error(f"Failed to fetch tweet {tweet_id}: {error_msg}")
+        logger.error(f"Failed to fetch url: {url}: {error_msg}")
         return []
 
     except Exception as e:
-        logger.error(f"Unexpected error fetching tweet {tweet_id}: {str(e)}")
+        logger.error(f"Unexpected error fetching url: {url}: {str(e)}")
         return []
 
 
