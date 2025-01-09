@@ -1,15 +1,13 @@
 import asyncio
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 from typing import List, Optional, Dict
 from contextlib import asynccontextmanager
-from dotenv import load_dotenv
-from httpx import AsyncClient, TimeoutException, HTTPStatusError
-from sqlalchemy.ext.asyncio import AsyncSession
 import random
 from datetime import datetime, timedelta, timezone
 import re
 import logging
 
+from src.utils.common import parse_date, download_content
 from src.database.models.pydantic_models import TweetDetails,TwitterCredentials, Tweet, InitialTweetState
 from src.core.exceptions import TwitterAuthError, TwitterScraperError
 from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
@@ -110,7 +108,6 @@ class TwitterScraper:
         self.days_to_scrape = days_to_scrape
         self.processed_ids = set()
         self.cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_to_scrape)
-        self.twitter_api = "https://api.vxtwitter.com/Twitter/status"
         self.headless = headless
         self.tweet_db_repo = tweet_db_repo
         self.current_account = None
@@ -299,65 +296,14 @@ class TwitterScraper:
             logger.error(f"Fatal error in scrape_tweets: {str(e)}")
             raise TwitterScraperError(f"Scraping failed: {str(e)}")
 
-    async def get_tweet(self, tweet_id: str) -> List[Dict]:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json"
-        }
-
-        try:
-            # Note the parentheses after AsyncClient and await for async operations
-            async with AsyncClient(verify=False, timeout=15.0) as client:
-                response = await client.get(
-                    f"{self.twitter_api}/{tweet_id}",
-                    headers=headers
-                )
-                await response.aread()  # Ensure the response body is fully read
-                response.raise_for_status()
-
-                tweet_content = response.json()
-
-                if not tweet_content:
-                    logger.info(f"No tweet content found for tweet ID {tweet_id}")
-                    return []
-
-                logger.info(f"Successfully scraped tweet {tweet_id}")
-                logger.debug(f"Tweet content: {tweet_content}")
-
-                return tweet_content
-
-        except TimeoutException as e:
-            logger.error(f"Timeout while fetching tweet {tweet_id}: {str(e)}")
-            return []
-
-        except HTTPStatusError as e:
-            error_msg = f"HTTP {e.response.status_code}"
-            if e.response.status_code == 404:
-                logger.info(f"Tweet {tweet_id} not found")
-            else:
-                logger.error(f"Failed to fetch tweet {tweet_id}: {error_msg}")
-            return []
-
-        except Exception as e:
-            logger.error(f"Unexpected error fetching tweet {tweet_id}: {str(e)}")
-            return []
 
 class TweetProcessor:
-    def __init__(self, scraper: TwitterScraper, tweet_repo: TweetRepository, account_repo: TwitterAccountRepository):
+    def __init__(self, scraper: TwitterScraper, tweet_repo: TweetRepository, account_repo: TwitterAccountRepository, twitter_api:str = "https://api.vxtwitter.com/Twitter/status"):
         self.scraper = scraper
         self.tweet_repo = tweet_repo
         self.account_repo = account_repo
         self.maped_account_names_to_categories = dict()
-
-    def _parse_date(self, date_str: str) -> datetime:
-        try:
-            # Parse Twitter's date format
-            dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %z %Y')
-            # Convert to UTC
-            return dt.astimezone(timezone.utc)
-        except ValueError as e:
-            logger.error(f"Failed to parse date: {date_str}, error: {e}")
-            return None
+        self.twitter_api = twitter_api 
 
     async def _get_tweets(self) -> List[InitialTweetState]:
         try:
@@ -365,7 +311,9 @@ class TweetProcessor:
             success = []
             tweets: Dict[str, TweetDetails] = await self.scraper.initial_scrape()
             for tweet in tweets.values():
-                tweet_json = await self.scraper.get_tweet(tweet.id)
+
+                tweet_url = f"{self.twitter_api}/{tweet.id}",
+                tweet_json = await download_content(tweet_url)
                 if not tweet_json:
                     logger.error(f"Error fetching tweet {tweet.id}")
                     failed.append(tweet.id)
@@ -392,7 +340,7 @@ class TweetProcessor:
         tweet_objects = []
         for tweet in tweets:
             account_id, category_id = self.maped_account_names_to_categories[tweet['user_name']]
-            dt = self._parse_date(tweet['date'])
+            dt = parse_date(tweet['date'])
             tweet_objects.append(Tweet(
                 twitter_id=tweet['tweetID'],
                 account_id=account_id,
@@ -431,7 +379,6 @@ class TweetProcessor:
             logger.error(f"Error processing tweets: {str(e)}")
             return False 
     
-
 async def main():
     from src.database.db import get_session
     from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
