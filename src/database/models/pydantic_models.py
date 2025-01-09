@@ -19,6 +19,9 @@ class Tweet(BaseModel):
     media_urls: Optional[List[str]] = None
     created_at: datetime.datetime
 
+    def __hash__(self):
+        return hash(self.id)
+
 
 class Category(BaseModel):
     """Pydantic model to store category information"""
