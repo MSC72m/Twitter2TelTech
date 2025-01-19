@@ -9,9 +9,9 @@ class TwitterCredentials(BaseModel):
     email: str
 
 
-class Tweet(BaseModel):
+class TweetDB(BaseModel):
     """Pydantic model to store tweet information"""
-    id: int 
+    id: int
     twitter_id: str
     account_id: int
     category_id: int
@@ -19,8 +19,8 @@ class Tweet(BaseModel):
     media_urls: Optional[List[str]] = None
     created_at: datetime.datetime
 
-    def __hash__(self):
-        return hash(self.id)
+    class Config:
+        orm_mode = True
 
 
 class Category(BaseModel):

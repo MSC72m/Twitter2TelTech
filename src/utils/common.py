@@ -1,13 +1,13 @@
 import logging
-from httpx import AsyncClient
 from httpx import AsyncClient, TimeoutException, HTTPStatusError
+import  traceback
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Optional, Dict, List
 
 logger = logging.getLogger(__name__)
 
 
-async def download_content(self, url: str) -> List[Dict]:
+async def download_content(url: str) -> List[Dict]:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json"
@@ -18,7 +18,7 @@ async def download_content(self, url: str) -> List[Dict]:
         async with AsyncClient(verify=False, timeout=15.0) as client:
             response = await client.get(
                 url,
-                headers=headers
+                headers=headers,
             )
             await response.aread()  # Ensure the response body is fully read
             response.raise_for_status()
@@ -42,10 +42,11 @@ async def download_content(self, url: str) -> List[Dict]:
 
     except Exception as e:
         logger.error(f"Unexpected error fetching url: {url}: {str(e)}")
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return []
 
 
-def parse_date(self, date_str: str) -> datetime:
+def parse_date(date_str: str) -> Optional[datetime]:
     try:
         # Parse Twitter's date format
         dt = datetime.strptime(date_str, '%a %b %d %H:%M:%S %z %Y')

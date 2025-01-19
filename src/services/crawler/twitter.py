@@ -1,4 +1,3 @@
-import asyncio
 from playwright.async_api import async_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
 from typing import List, Set, Optional, Dict, Any
 from contextlib import asynccontextmanager
@@ -7,11 +6,13 @@ from datetime import datetime, timedelta, timezone
 import re
 import logging
 import  traceback
+from pydantic import ValidationError
 
 from src.utils.common import parse_date, download_content
-from src.database.models.pydantic_models import TweetDetails,TwitterCredentials, Tweet, InitialTweetState
+from src.database.models.pydantic_models import Category, TweetDetails,TwitterCredentials, TweetDB, InitialTweetState
+from src.database.models.models import Tweet
 from src.core.exceptions import TwitterAuthError, TwitterScraperError
-from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
+from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository, CategoryRepository
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -27,7 +28,7 @@ class TwitterAuth:
     async def _check_login_selector_present(self, page: Page) -> bool:
         """Check if login is required based on current page state"""
         try:
-            await page.wait_for_load_state(timeout=10000)
+            await page.wait_for_load_state(timeout=150000)
             login_indicator = await page.query_selector('input[autocomplete="username"], form[action="/i/flow/login"]')
             if login_indicator:
                 logger.info("Login required")
@@ -56,7 +57,7 @@ class TwitterAuth:
     async def authenticate(self, page: Page) -> bool:
         """Perform Twitter authentication in current window"""
         try:
-            await asyncio.sleep(7)
+            await asyncio.sleep(9)
             if not await self._check_login_selector_present(page):
                 logger.info("No login required")
                 return True
@@ -162,7 +163,7 @@ class TwitterScraper:
                 await browser.close()
 
 
-    async def _wait_for_network_idle(self, page: Page, timeout: int = 70000):
+    async def _wait_for_network_idle(self, page: Page, timeout: int = 40000):
         """Wait for network to become idle"""
         try:
             await page.wait_for_load_state("networkidle", timeout=timeout)
@@ -206,13 +207,13 @@ class TwitterScraper:
         """Perform adaptive scrolling with increasing scroll length"""
         try:
             # Base scroll amount increases with consecutive empty results
-            base_scroll = 650 + (consecutive_empty * 200)  # Increase scroll amount when no new tweets found
-            random_addition = random.randint(50, 150)
+            base_scroll = 800 + (consecutive_empty * 200)  # Increase scroll amount when no new tweets found
+            random_addition = random.randint(100, 200)
             total_scroll = base_scroll + random_addition
             await page.evaluate(f"window.scrollBy(0, {total_scroll})")
 
             # Adaptive wait time based on scroll distance
-            wait_time = 2000 + (total_scroll / 750) * 500
+            wait_time = 2000 + (total_scroll / 850) * 500
             await page.wait_for_timeout(wait_time)
             await self._wait_for_network_idle(page)
         except Exception as e:
@@ -225,7 +226,7 @@ class TwitterScraper:
             async with self._setup_browser() as browser:
                 context = await browser.new_context()
                 page = await context.new_page()
-                page.set_default_timeout(150000)
+                page.set_default_timeout(100000)
 
                 self.db_ids = set(await self.tweet_db_repo.get_all_ids())
                 all_tweets: Dict[str, List[Any]] = {}
@@ -295,62 +296,84 @@ class TwitterScraper:
         return new_tweets
 
 class TweetProcessor:
-    def __init__(self, scraper: TwitterScraper, tweet_repo: TweetRepository, account_repo: TwitterAccountRepository, twitter_api:str = "https://api.vxtwitter.com/Twitter/status"):
+    def __init__(self, scraper: TwitterScraper, tweet_repo: TweetRepository, account_repo: TwitterAccountRepository, category_repo: CategoryRepository, twitter_api:str = 'https://api.vxtwitter.com/Twitter/status/'):
         self.scraper = scraper
         self.tweet_repo = tweet_repo
         self.account_repo = account_repo
-        self.maped_account_names_to_categories = dict()
-        self.twitter_api = twitter_api 
+        self.category_repo = category_repo
+        self.mapped_account_names_to_categories = dict()
+        self.twitter_api = twitter_api
 
-    async def _get_tweets(self) -> List[InitialTweetState]:
+    async def _get_tweets(self) -> Dict[str, List[Any]]:
         try:
-            failed = [] 
-            success = []
-            tweets: Dict[Any, TweetDetails] = await self.scraper.initial_scrape()
-            for tweet in tweets.values():
+            failed: Dict[str, List[Any]] = {}
+            success: Dict[str, List[Any]] = {}
+            tweets: Dict[str, List[TweetDetails]] = await self.scraper.initial_scrape()
 
-                tweet_url = f"{self.twitter_api}/{tweet.id}",
-                tweet_json = await download_content(tweet_url)
-                if not tweet_json:
-                    logger.error(f"Error fetching tweet {tweet.id}")
-                    failed.append(tweet.id)
-                    continue
-                success.append(tweet_json)
-                self.present_ids.add(tweet.id)
+            for account, tweet_list in tweets.items():
+                for tweet in tweet_list:
+                    tweet_url = f"{self.twitter_api}{tweet.id}"
+                    tweet_json = await download_content(url=str(tweet_url))
+                    if not tweet_json:
+                        logger.error(f"Error fetching tweet {tweet.id}")
+                        failed[account].append(tweet.id)
+                        continue
+                    success[account].append(tweet_json)
             return success
         except Exception as e:
             logger.error(f"Error fetching tweets: {str(e)}")
-            return []
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return {}
 
     async def _map_ids_to_categories(self):
         try:
-            account_name_category_list = await self.account_repo.get_all_name_category()
-            self.maped_account_names_to_categories = {
-                account_name: (account_id, category) for account_id, account_name, category in account_name_category_list
-            }
-            return 
-        except Exception as e: 
+            account_details = await self.account_repo.get_account_details()
+            category_mappings = await self.category_repo.get_account_category_mappings()
+
+            # Create mappings using explicit integer keys
+            account_id_to_name = {int(account_id): username
+                                  for account_id, username in account_details}
+            account_id_to_category = {int(account_id): int(category_id)
+                                      for account_id, category_id in category_mappings}
+
+            # Build the final mapping
+            self.mapped_account_names_to_categories = {}
+            for account_id in account_id_to_name:
+                if account_id in account_id_to_category:
+                    self.mapped_account_names_to_categories[account_id_to_name[account_id]] = (
+                        account_id,
+                        account_id_to_category[account_id]
+                    )
+            logger.info(f"Mapped account names to categories: {self.mapped_account_names_to_categories}")
+
+        except Exception as e:
             logger.error(f"Error mapping ids to categories: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
 
-    def _transform_tweet_objects(self, tweets: List[InitialTweetState]) -> List[Tweet]:
-        tweet_objects = []
-        for tweet in tweets:
-            account_id, category_id = self.maped_account_names_to_categories[tweet['user_name']]
-            dt = parse_date(tweet['date'])
-            tweet_objects.append(Tweet(
-                twitter_id=tweet['tweetID'],
-                account_id=account_id,
-                category_id=category_id,
-                content=tweet['text'],
-                media_urls=tweet['mediaURLs'],
-                created_at=dt
-            ))
-        return tweet_objects
-
-    async def _insert_tweets(self, tweets: List[InitialTweetState]) -> bool:
+    def _transform_tweet_objects(self, tweets: List[List[Dict]]) -> List[Tweet]:
         try:
-            tweet_objects: List[Tweet] = self.transform_tweet_objects(tweets)
+            tweet_objects = []
+            for tweet in tweets:
+                account_id, category_id = self.mapped_account_names_to_categories[tweet['user_screen_name']]
+                logger.info(f"Mapping account {account_id} to category {category_id}")
+                dt = parse_date(tweet['date'])
+                tweet_objects.append(Tweet(
+                    twitter_id=str(tweet['tweetID']),
+                    account_id=int(account_id),
+                    category_id=int(category_id),
+                    text=tweet['text'],
+                    media_urls=tweet['mediaURLs'],
+                    created_at=dt
+                ))
+            return tweet_objects
+        except ValidationError as e:
+            logger.error(f"Validation error: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+
+    async def _insert_tweets(self, tweets: List[List[Dict]]) -> bool:
+        try:
+            tweet_objects: List[Tweet] = self._transform_tweet_objects(tweets)
             if not tweet_objects:
                 logger.info("No tweet objects to insert")
                 return False
@@ -358,28 +381,27 @@ class TweetProcessor:
             return True
         except Exception as e:
             logger.error(f"Error inserting tweets: {str(e)}")
-            await self.session.rollback()
+            await self.tweet_repo.session.rollback()
             return False
 
     async def process_tweets(self) -> bool:
         try:
-            tweets = await self._get_tweets()
-            if not tweets:
+            await self._map_ids_to_categories()
+            tweets_dict = await self._get_tweets()
+            if not tweets_dict:
                 logger.info("No tweets to process")
                 return False
-            tweet_objects = self._transform_tweet_objects(tweets)
-            if not tweet_objects:
-                logger.info("No tweet objects to process")
-                return False
-            return await self._insert_tweets(tweet_objects)
+            for account, tweets in tweets_dict.items():
+                await self._insert_tweets(tweets)
+                await self.account_repo.update_last_fetched(account)
         except Exception as e:
             logger.error(f"Error processing tweets: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
-            return False 
+            return False
     
 async def main():
     from src.database.db import get_session
-    from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository
+    from src.database.repositories.repositories import CategoryRepository, TweetRepository, TwitterAccountRepository
     from src.database.models.pydantic_models import TwitterCredentials
     from src.core.config import TWITTER_CREDENTIALS 
 
@@ -389,17 +411,15 @@ async def main():
         async with get_session() as session:
             logger.info("Initialized session")
             tweet_repo = TweetRepository(Tweet, session)
-            account_repo = TwitterAccountRepository(Tweet, session)
+            account_repo = TwitterAccountRepository(TwitterAccountRepository, session)
+            category_repo = CategoryRepository(CategoryRepository, session)
 
             # Initialize Twitter scraper
             auth = TwitterAuth(TwitterCredentials(**TWITTER_CREDENTIALS.model_dump()))
-            scraper = TwitterScraper(auth, tweet_repo, ["msc72m"], 7, headless=False)
-            processor = TweetProcessor(scraper, tweet_repo, account_repo)
-
+            scraper = TwitterScraper(auth, tweet_repo, ["vim_tricks", "Neovim", "LinusTech", "itpourya", "msc72m"], 10, headless=False)
+            processor = TweetProcessor(scraper, tweet_repo, account_repo, category_repo)
             # Process tweets
             await processor.process_tweets()
-
-
             return None
 
     except Exception as e:

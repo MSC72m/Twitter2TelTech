@@ -1,11 +1,15 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from src.database.repositories.base_repo import BaseRepository
-from src.database.models.pydantic_models import Tweet 
-from src.database.models.models import User, TwitterAccount, user_account_subscriptions, user_category_subscriptions, Tweet as TweetModel
-from typing import Dict, Tuple, List, Optional, Any
-import logging
+from datetime import datetime
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, Integer
+from sqlalchemy.orm.sync import update
+
+from src.database.repositories.base_repo import BaseRepository
+from src.database.models.pydantic_models import TweetDB, Category
+from src.database.models.models import User, TwitterAccount, twitter_account_categories, user_account_subscriptions, user_category_subscriptions, Tweet as TweetModel
+from typing import Dict, Tuple, List, Optional, Any, Sequence
+import logging
+from uuid import UUID
 logger = logging.getLogger(__name__)
 
 class TweetRepository(BaseRepository[TweetModel]):
@@ -47,6 +51,17 @@ class TweetRepository(BaseRepository[TweetModel]):
 
 
 class TwitterAccountRepository(BaseRepository[TwitterAccount]):
+    async def get_account_details(self):
+        try:
+            logger.debug("Fetching all Twitter account details")
+            result = await self.session.execute(select(TwitterAccount.id, TwitterAccount.username))
+            accounts = result.fetchall()
+            logger.debug(f"Fetched {len(accounts)} account details")
+            return [account for account in accounts]
+        except Exception as e:
+            logger.error(f"Error in get_account_details: {e}")
+            raise
+
     async def get_id_by_username(self, username: str):
         try:
             logger.debug(f"Fetching account ID for username: {username}")
@@ -85,35 +100,50 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
         except Exception as e:
             logger.error(f"Error in get_twitter_accounts: {e}")
             raise
-
-    async def get_all_account_ids_with_category(self) -> List[Tuple[int, str, int]]:
+    async def update_last_fetched(self, screen_user_name: str):
         try:
-            logger.debug("Fetching all account IDs with categories")
-            result = await self.session.execute(select(TwitterAccount.id, TwitterAccount.username, TwitterAccount.category_id))
-            accounts = result.all()
-            logger.info(f"Fetched {len(accounts)} accounts with categories")
-            return accounts
+            logger.debug("Updating last fetched")
+            await self.session.execute(
+                update(TwitterAccount)
+                .where(TwitterAccount.username == screen_user_name)
+                .values(last_fetched=datetime.utcnow())
+            )
+            await self.session.commit()
         except Exception as e:
-            logger.error(f"Error in get_all_account_ids_with_category: {e}")
+            logger.error(f"Error in update_last_fetched: {e}")
+
+
+class CategoryRepository(BaseRepository[Category]):
+    async def get_account_category_mappings(self) -> List[Tuple[int, int]]:
+        try:
+            # Correct select syntax for SQLAlchemy
+            query = select(
+                twitter_account_categories.c.twitter_account_id,
+                twitter_account_categories.c.category_id
+            )
+            result = await self.session.execute(query)
+            rows = result.fetchall()
+            # Ensure we're working with integers
+            return [(int(row[0]), int(row[1])) for row in rows]
+        except Exception as e:
+            logger.error(f"Error in get_account_category_mappings: {e}")
             raise
-
-
 class UserRepository(BaseRepository[User]):
-    async def get_all_subscribed_categories(self, user_id: int) -> List[Tuple[str, int]]:
+    async def get_all_subscribed_categories(self, user_id: UUID) -> List[int]:
         try:
             logger.debug(f"Fetching all subscribed categories for user ID: {user_id}")
             result = await self.session.execute(
-                select(user_category_subscriptions.c.account_id, user_category_subscriptions.c.category_id)
+                select(user_category_subscriptions.c.category_id)
                 .where(user_category_subscriptions.c.user_id == user_id)
             )
-            categories = result.all()
+            categories = result.scalars().all()
             logger.debug(f"Fetched {len(categories)} subscribed categories")
             return categories
         except Exception as e:
             logger.error(f"Error in get_all_subscribed_categories: {e}")
             raise
 
-    async def get_all_subscribed_accounts(self, user_id: int) -> List[int]:
+    async def get_all_subscribed_accounts(self, user_id: UUID) -> List[int]:
         try:
             logger.debug(f"Fetching all subscribed accounts for user ID: {user_id}")
             result = await self.session.execute(
@@ -126,4 +156,3 @@ class UserRepository(BaseRepository[User]):
         except Exception as e:
             logger.error(f"Error in get_all_subscribed_accounts: {e}")
             raise
-
