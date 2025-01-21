@@ -7,6 +7,7 @@ import re
 import logging
 import  traceback
 from pydantic import ValidationError
+from collections import defaultdict
 
 from src.utils.common import parse_date, download_content
 from src.database.models.pydantic_models import Category, TweetDetails,TwitterCredentials, TweetDB, InitialTweetState
@@ -306,8 +307,8 @@ class TweetProcessor:
 
     async def _get_tweets(self) -> Dict[str, List[Any]]:
         try:
-            failed: Dict[str, List[Any]] = {}
-            success: Dict[str, List[Any]] = {}
+            failed: Dict[str, List[Any]] = defaultdict(list)
+            success: Dict[str, List[Any]] = defaultdict(list)
             tweets: Dict[str, List[TweetDetails]] = await self.scraper.initial_scrape()
 
             for account, tweet_list in tweets.items():
@@ -330,7 +331,6 @@ class TweetProcessor:
             account_details = await self.account_repo.get_account_details()
             category_mappings = await self.category_repo.get_account_category_mappings()
 
-            # Create mappings using explicit integer keys
             account_id_to_name = {int(account_id): username
                                   for account_id, username in account_details}
             account_id_to_category = {int(account_id): int(category_id)
@@ -378,6 +378,7 @@ class TweetProcessor:
                 logger.info("No tweet objects to insert")
                 return False
             await self.tweet_repo.create_all(tweet_objects)
+            logger.info(f"Inserted {len(tweet_objects)} tweets")
             return True
         except Exception as e:
             logger.error(f"Error inserting tweets: {str(e)}")
@@ -413,10 +414,12 @@ async def main():
             tweet_repo = TweetRepository(Tweet, session)
             account_repo = TwitterAccountRepository(TwitterAccountRepository, session)
             category_repo = CategoryRepository(CategoryRepository, session)
+            # having troble storing the account names as dict keys and tweets as list  infront of it
 
             # Initialize Twitter scraper
             auth = TwitterAuth(TwitterCredentials(**TWITTER_CREDENTIALS.model_dump()))
-            scraper = TwitterScraper(auth, tweet_repo, ["vim_tricks", "Neovim", "LinusTech", "itpourya", "msc72m"], 10, headless=False)
+            # "Neovim", "LinusTech", "itpourya", "msc72m"
+            scraper = TwitterScraper(auth, tweet_repo, ["Neovim", "LinusTech", "itpourya", "msc72m", "vim_tricks"], 10, headless=False)
             processor = TweetProcessor(scraper, tweet_repo, account_repo, category_repo)
             # Process tweets
             await processor.process_tweets()

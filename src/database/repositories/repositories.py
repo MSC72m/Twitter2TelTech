@@ -1,15 +1,14 @@
-from datetime import datetime
-
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, Integer
-from sqlalchemy.orm.sync import update
+from sqlalchemy import update, select, Integer
+from typing import Dict, Tuple, List, Optional, Any, Sequence
+import logging
+from uuid import UUID
 
 from src.database.repositories.base_repo import BaseRepository
 from src.database.models.pydantic_models import TweetDB, Category
 from src.database.models.models import User, TwitterAccount, twitter_account_categories, user_account_subscriptions, user_category_subscriptions, Tweet as TweetModel
-from typing import Dict, Tuple, List, Optional, Any, Sequence
-import logging
-from uuid import UUID
+
 logger = logging.getLogger(__name__)
 
 class TweetRepository(BaseRepository[TweetModel]):
@@ -100,18 +99,22 @@ class TwitterAccountRepository(BaseRepository[TwitterAccount]):
         except Exception as e:
             logger.error(f"Error in get_twitter_accounts: {e}")
             raise
+
     async def update_last_fetched(self, screen_user_name: str):
         try:
             logger.debug("Updating last fetched")
-            await self.session.execute(
+            # Correct usage of update
+            stmt = (
                 update(TwitterAccount)
                 .where(TwitterAccount.username == screen_user_name)
-                .values(last_fetched=datetime.utcnow())
+                .values(last_fetched=datetime.now(timezone.utc))
             )
+            await self.session.execute(stmt)
             await self.session.commit()
         except Exception as e:
             logger.error(f"Error in update_last_fetched: {e}")
-
+            await self.session.rollback()
+            raise
 
 class CategoryRepository(BaseRepository[Category]):
     async def get_account_category_mappings(self) -> List[Tuple[int, int]]:
@@ -128,6 +131,7 @@ class CategoryRepository(BaseRepository[Category]):
         except Exception as e:
             logger.error(f"Error in get_account_category_mappings: {e}")
             raise
+
 class UserRepository(BaseRepository[User]):
     async def get_all_subscribed_categories(self, user_id: UUID) -> List[int]:
         try:
