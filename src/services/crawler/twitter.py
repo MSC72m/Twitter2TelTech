@@ -8,10 +8,11 @@ import logging
 import  traceback
 from pydantic import ValidationError
 from collections import defaultdict
+from async_property import async_property
 
-from src.utils.common import parse_date, download_content
+from src.utils.common import get_map_ids_to_categories, parse_date, download_content
 from src.database.models.pydantic_models import Category, TweetDetails,TwitterCredentials, TweetDB, InitialTweetState
-from src.database.models.models import Tweet
+from src.database.models.models import Tweet, twitter_account_categories
 from src.core.exceptions import TwitterAuthError, TwitterScraperError
 from src.database.repositories.repositories import TweetRepository, TwitterAccountRepository, CategoryRepository
 
@@ -302,8 +303,11 @@ class TweetProcessor:
         self.tweet_repo = tweet_repo
         self.account_repo = account_repo
         self.category_repo = category_repo
-        self.mapped_account_names_to_categories = dict()
         self.twitter_api = twitter_api
+
+    @async_property
+    async def mapped_account_names_to_categories(self) -> Dict[str, str]:
+        return await get_map_ids_to_categories(self.account_repo, self.category_repo)
 
     async def _get_tweets(self) -> Dict[str, List[Any]]:
         try:
@@ -325,31 +329,6 @@ class TweetProcessor:
             logger.error(f"Error fetching tweets: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return {}
-
-    async def _map_ids_to_categories(self):
-        try:
-            account_details = await self.account_repo.get_account_details()
-            category_mappings = await self.category_repo.get_account_category_mappings()
-
-            account_id_to_name = {int(account_id): username
-                                  for account_id, username in account_details}
-            account_id_to_category = {int(account_id): int(category_id)
-                                      for account_id, category_id in category_mappings}
-
-            # Build the final mapping
-            self.mapped_account_names_to_categories = {}
-            for account_id in account_id_to_name:
-                if account_id in account_id_to_category:
-                    self.mapped_account_names_to_categories[account_id_to_name[account_id]] = (
-                        account_id,
-                        account_id_to_category[account_id]
-                    )
-            logger.info(f"Mapped account names to categories: {self.mapped_account_names_to_categories}")
-
-        except Exception as e:
-            logger.error(f"Error mapping ids to categories: {str(e)}")
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-            raise
 
     def _transform_tweet_objects(self, tweets: List[List[Dict]]) -> List[Tweet]:
         try:
@@ -387,7 +366,6 @@ class TweetProcessor:
 
     async def process_tweets(self) -> bool:
         try:
-            await self._map_ids_to_categories()
             tweets_dict = await self._get_tweets()
             if not tweets_dict:
                 logger.info("No tweets to process")
@@ -421,6 +399,7 @@ async def main():
             # "Neovim", "LinusTech", "itpourya", "msc72m"
             scraper = TwitterScraper(auth, tweet_repo, ["Neovim", "LinusTech", "itpourya", "msc72m", "vim_tricks"], 10, headless=False)
             processor = TweetProcessor(scraper, tweet_repo, account_repo, category_repo)
+            await processor.mapped_account_names_to_categories
             # Process tweets
             await processor.process_tweets()
             return None

@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+
+from sqlalchemy.engine import row
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select, Integer
 from typing import Dict, Tuple, List, Optional, Any, Sequence
@@ -131,6 +133,22 @@ class CategoryRepository(BaseRepository[Category]):
         except Exception as e:
             logger.error(f"Error in get_account_category_mappings: {e}")
             raise
+
+    async def get_all_category_info(self) -> List[Tuple[int, str, str]]:
+        try:
+            query = select(
+                Category.id,
+                Category.description,
+                Category.name,
+            )
+            result = await self.session.execute(query)
+            rows = list(result.all())
+            return [(int(_row[0]), _row[1], _row[2]) for _row in rows]
+
+        except Exception as e:
+            logger.error(f"Error in get_all_categories: {e}")
+            raise
+
 
 class UserRepository(BaseRepository[User]):
     async def get_all_subscribed_categories(self, user_id: UUID) -> List[int]:
