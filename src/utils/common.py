@@ -2,7 +2,7 @@ import logging
 from httpx import AsyncClient, TimeoutException, HTTPStatusError
 import  traceback
 from datetime import datetime, timezone
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 from src.database.repositories.repositories import TwitterAccountRepository, CategoryRepository
 
@@ -59,7 +59,7 @@ def parse_date(date_str: str) -> Optional[datetime]:
         return None
 
 
-async def get_map_ids_to_categories(account_repo: TwitterAccountRepository, category_repo: CategoryRepository):
+async def get_map_ids_to_categories(account_repo: TwitterAccountRepository, category_repo: CategoryRepository) -> Dict[str, Tuple[int, int]]:
     try:
         account_details = await account_repo.get_account_details()
         category_mappings = await category_repo.get_account_category_mappings()

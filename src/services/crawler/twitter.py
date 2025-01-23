@@ -1,5 +1,5 @@
 from playwright.async_api import async_playwright, Page, Browser, TimeoutError as PlaywrightTimeoutError
-from typing import List, Set, Optional, Dict, Any
+from typing import List, Set, Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 import random
 from datetime import datetime, timedelta, timezone
@@ -306,7 +306,7 @@ class TweetProcessor:
         self.twitter_api = twitter_api
 
     @async_property
-    async def mapped_account_names_to_categories(self) -> Dict[str, str]:
+    async def _mapped_account_names_to_categories(self) -> Dict[str, Tuple[int, int]]:
         return await get_map_ids_to_categories(self.account_repo, self.category_repo)
 
     async def _get_tweets(self) -> Dict[str, List[Any]]:
@@ -334,7 +334,7 @@ class TweetProcessor:
         try:
             tweet_objects = []
             for tweet in tweets:
-                account_id, category_id = self.mapped_account_names_to_categories[tweet['user_screen_name']]
+                account_id, category_id = self._mapped_account_names_to_categories[tweet['user_screen_name']]
                 logger.info(f"Mapping account {account_id} to category {category_id}")
                 dt = parse_date(tweet['date'])
                 tweet_objects.append(Tweet(
