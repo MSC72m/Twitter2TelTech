@@ -5,7 +5,7 @@ from rich.progress import track
 from rich.table import Table
 from abc import ABC, abstractmethod
 from typing import Dict, List, Tuple, Set, Union
-from async_property import async_cached_property, async_property
+from async_property import async_cached_property
 
 from src.database.models.models import TwitterAccount, Category, Tweet
 from src.database.models.pydantic_models import CategoryDbObject
@@ -21,16 +21,25 @@ class DbInfoGetter:
     def __init__(self, categories_repo: CategoryRepository, accounts_repo: TwitterAccountRepository):
         self._categories_repo = categories_repo
         self._accounts_repo = accounts_repo
-
-    @async_property
-    async def get_map_ids_to_categories(self):
-        return await get_map_ids_to_categories( self._accounts_repo, self._categories_repo)
+        self._cached_mapped_category_ids = None
+        self._cached_category_id_name = None
 
     @async_cached_property
-    async def _category_id_name(self):
-        return await self._categories_repo.get_all_category_info()
+    async def mapped_category_ids(self):
+        if self._cached_mapped_category_ids is None:
+            self._cached_mapped_category_ids = await get_map_ids_to_categories(
+                self._accounts_repo,
+                self._categories_repo
+            )
+        return self._cached_mapped_category_ids
+
+    @async_cached_property
+    async def category_id_name(self):
+        if self._cached_category_id_name is None:
+            self._cached_category_id_name = await self._categories_repo.get_all_category_info()
+        return self._cached_category_id_name
 
     async def show_current_categories(self):
-        tmp = await self._category_id_name
-        print(tmp)
-        print(self._category_id_name)
+        print(await self.category_id_name)
+        print(self._cached_category_id_name)
+
