@@ -14,11 +14,7 @@ async def main():
         account_repo = TwitterAccountRepository(TwitterAccount, session)
         category_repo = CategoryRepository(Category, session)
         db_info_getter = DbInfoGetter(accounts_repo=account_repo, categories_repo=category_repo)
-        category_names = await db_info_getter.show_current_categories()
-        printter = PrintTable(title="Category Printter", columns=category_names)
-        printter.add_row("ids 3242345425")
-        console = Console()
-        console.print(printter)
+        await db_info_getter.show_current_categories()
 
 
         return None

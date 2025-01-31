@@ -66,7 +66,6 @@ class DbInfoGetter:
         return self._cached_category_id_name
 
     async def show_current_categories(self):
-        await self._cached_category_id_name
-        return [category.name for category in self._cached_category_id_name]
-
-
+        if self._cached_category_id_name is None:
+            await self.category_id_name
+        print(self._cached_category_id_name)
