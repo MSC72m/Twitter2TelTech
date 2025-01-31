@@ -34,13 +34,14 @@ class TwitterAuth:
             login_indicator = await page.query_selector('input[autocomplete="username"], form[action="/i/flow/login"]')
             if login_indicator:
                 logger.info("Login required")
-                return True 
+                logger.info(f"Hey")
+                return True
             logger.info("No login required")
-            return False 
+            return False
 
         except Exception:
             return False
-    
+
     async def _check_auth_token_present(self, page: Page) -> bool:
         try:
             # Check if there is an Auth token
@@ -49,7 +50,7 @@ class TwitterAuth:
                 if cookie['name'] == 'auth_token':
                     logger.info("Auth token found")
                     return True
-            return False 
+            return False
 
 
         except Exception as e:
@@ -108,7 +109,7 @@ class TwitterScraper:
 
     def __init__(self, auth: TwitterAuth, tweet_db_repo: TweetRepository, username_to_scrape: List[str], days_to_scrape: int, headless: bool = False):
         self.auth = auth
-        self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape] 
+        self.username_to_scrape = [username.strip('@').lower() for username in username_to_scrape]
         self.days_to_scrape = days_to_scrape
         self.processed_ids = set()
         self.db_ids = set()
@@ -117,7 +118,7 @@ class TwitterScraper:
         self.tweet_db_repo = tweet_db_repo
         self.current_account = None
 
-        
+
     def _build_search_urls(self) -> List[str]:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=self.days_to_scrape)
@@ -198,7 +199,7 @@ class TwitterScraper:
             tweet_date = datetime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%fZ')
             tweet_date = tweet_date.replace(tzinfo=timezone.utc)
 
-            return TweetDetails(id=tweet_id, date=tweet_date) 
+            return TweetDetails(id=tweet_id, date=tweet_date)
 
         except Exception as e:
             logger.error(f"Error extracting tweet info: {str(e)}")
@@ -377,12 +378,12 @@ class TweetProcessor:
             logger.error(f"Error processing tweets: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
-    
+
 async def main():
     from src.database.db import get_session
     from src.database.repositories.repositories import CategoryRepository, TweetRepository, TwitterAccountRepository
     from src.database.models.pydantic_models import TwitterCredentials
-    from src.core.config import TWITTER_CREDENTIALS 
+    from src.core.config import TWITTER_CREDENTIALS
 
     try:
         # Initialize repositories
@@ -399,7 +400,6 @@ async def main():
             # "Neovim", "LinusTech", "itpourya", "msc72m"
             scraper = TwitterScraper(auth, tweet_repo, ["Neovim", "LinusTech", "itpourya", "msc72m", "vim_tricks"], 10, headless=False)
             processor = TweetProcessor(scraper, tweet_repo, account_repo, category_repo)
-            await processor.mapped_account_names_to_categories
             # Process tweets
             await processor.process_tweets()
             return None

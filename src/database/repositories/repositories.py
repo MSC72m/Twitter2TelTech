@@ -1,15 +1,13 @@
 from datetime import datetime, timezone
 
-from sqlalchemy.engine import row
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import update, select, Integer
 from typing import Dict, Tuple, List, Optional, Any, Sequence
 import logging
 from uuid import UUID
 
 from src.database.repositories.base_repo import BaseRepository
-from src.database.models.pydantic_models import TweetDB, Category
-from src.database.models.models import User, TwitterAccount, twitter_account_categories, user_account_subscriptions, user_category_subscriptions, Tweet as TweetModel
+from src.database.models.pydantic_models import CategoryDbObject
+from src.database.models.models import Category, User, TwitterAccount, twitter_account_categories, user_account_subscriptions, user_category_subscriptions, Tweet as TweetModel
 
 logger = logging.getLogger(__name__)
 
@@ -134,16 +132,17 @@ class CategoryRepository(BaseRepository[Category]):
             logger.error(f"Error in get_account_category_mappings: {e}")
             raise
 
-    async def get_all_category_info(self) -> List[Tuple[int, str, str]]:
+    async def get_all_category_info(self) -> List[CategoryDbObject]:
         try:
             query = select(
                 Category.id,
                 Category.description,
                 Category.name,
+                Category.is_active
             )
             result = await self.session.execute(query)
             rows = list(result.all())
-            return [(int(_row[0]), _row[1], _row[2]) for _row in rows]
+            return [CategoryDbObject(id=int(_row[0]), description=_row[1], name=_row[2], is_active=_row[3]) for _row in rows]
 
         except Exception as e:
             logger.error(f"Error in get_all_categories: {e}")

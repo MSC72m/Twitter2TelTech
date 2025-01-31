@@ -20,7 +20,7 @@ class TweetDB(BaseModel):
     created_at: datetime.datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class Category(BaseModel):
@@ -43,6 +43,12 @@ class InitialTweetState(BaseModel):
     """Pydantic model to store initial tweet state"""
     tweets: List[Dict]
 
+
+class CategoryDbObject(BaseModel):
+    id: int
+    name: str
+    description: str
+    is_active: bool
 
 
 class CrawlAccountDetails(BaseModel):
