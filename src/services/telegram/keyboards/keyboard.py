@@ -12,3 +12,12 @@ def category_list_button(categories: Sequence[Category]) -> InlineKeyboardMarkup
         markup.add(types.InlineKeyboardButton(category.name, callback_data=str(category.id)))
 
     return markup
+
+def account_list_button(accounts: Sequence[str]) -> InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+
+    for account in accounts:
+        markup.add(types.InlineKeyboardButton(account, callback_data="follow" + account))
+
+    return markup
+
