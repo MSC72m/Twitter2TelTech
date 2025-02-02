@@ -9,6 +9,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/../../..")
 from src.cache.cache import get_cache_session
 from src.cache.payload import RedisPayload
+from src.services.telegram.ruls.rules import is_follow_account, is_follow_category
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,7 +26,7 @@ bot : AsyncTeleBot = generate_app()
 async def start_command(message: Message):
     await handler_start_command(bot, message)
 
-@bot.message_handler(func=lambda message: True if message.text == "Follow Category" else False)
+@bot.message_handler(func=is_follow_category)
 async def follow_category(message: Message):
     payload = RedisPayload(
             twitter_account = False,
@@ -37,7 +38,7 @@ async def follow_category(message: Message):
     logger.info(f"{status} {message.from_user.id} set {payload}")
     await handler_follow_category(bot, message)
 
-@bot.message_handler(func=lambda message: True if message.text == "Follow Account" else False)
+@bot.message_handler(func=is_follow_account)
 async def follow_account(message: Message):
     payload = RedisPayload(
             twitter_account = True,
