@@ -50,7 +50,10 @@ async def follow_account(message: Message):
     await handler_follow_account(bot, message)
 
 async def main():
-    await bot.infinity_polling()
+    try:
+        await bot.infinity_polling()
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     logger.info("Bot started")
