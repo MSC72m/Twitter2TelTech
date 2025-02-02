@@ -25,7 +25,7 @@ bot : AsyncTeleBot = generate_app()
 # Create handler for bot message
 @bot.message_handler(commands=['start'])
 async def start_command(message: Message):
-    await handler_start_command(message: Message, bot: AsyncTeleBot, rdb: redis.Redis)
+    await handler_start_command(message)
 
 @bot.message_handler(func=is_follow_category)
 async def follow_category(message: Message, bot: AsyncTeleBot, rdb: redis.Redis):
@@ -36,7 +36,7 @@ async def follow_category(message: Message, bot: AsyncTeleBot, rdb: redis.Redis)
             category = 0,
             )
     status = rdb.set(message.from_user.id, payload.model_dump_json())
-    logger.info(f"{status} {message.from_user.id} set {payload}")
+    logger.info(f"{status} User {message.from_user.username} (ID: {message.from_user.id}) set {payload}")
     await handler_follow_category(bot, message)
 
 @bot.message_handler(func=is_follow_account)
@@ -48,7 +48,7 @@ async def follow_account(message: Message, bot: AsyncTeleBot, rdb: redis.Redis):
             category = 0,
             )
     status = rdb.set(message.from_user.id, payload.model_dump_json())
-    logger.info(f"{status} {message.from_user.id} set {payload}")
+    logger.info(f"{status} User {message.from_user.username} (ID: {message.from_user.id}) set {payload}")
     await handler_follow_account(bot, message)
 
 async def main():
