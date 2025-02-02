@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 def get_cache_session() -> redis.Redis:
     load_dotenv()
-    host = os.getenv("REDIS_HOST")
-    port = int(os.getenv("REDIS_PORT"))
+    host = os.getenv("REDIS_HOST", "127.0.0.1")
+    port = int(os.getenv("REDIS_PORT", "6379"))
     global _redis_instance
     if _redis_instance is not None:
         return _redis_instance
