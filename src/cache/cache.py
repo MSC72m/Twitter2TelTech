@@ -12,12 +12,15 @@ def get_cache_session() -> redis.Redis:
     load_dotenv()
     host = os.getenv("REDIS_HOST")
     port = int(os.getenv("REDIS_PORT"))
-    
+    global _redis_instance
+    if _redis_instance is not None:
+        return _redis_instance
+
     try:
-        rds = redis.Redis(host=host, port=port, db=0)
-        rds.ping()
+        _redis_instance = redis.Redis(host=host, port=port, db=0)
+        _redis_instance.ping()
         logger.debug("REDIS session created successfully")
-        return rds
+        return _redis_instance
     except Exception as e:
         logger.error(f"Failed to create Redis session: {e}")
         raise
