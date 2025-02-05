@@ -175,7 +175,7 @@ class UserRepository(BaseRepository[User]):
             logger.error(f"Error in get_all_subscribed_categories: {e}")
             raise
 
-    async def get_all_subscribed_accounts(self, user_id: UUID) -> List[int]:
+    async def get_all_subscribed_accounts(self, user_id: UUID) -> Sequence[Row[Any] | RowMapping | Any]:
         try:
             logger.debug(f"Fetching all subscribed accounts for user ID: {user_id}")
             result = await self.session.execute(
