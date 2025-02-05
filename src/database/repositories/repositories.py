@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.engine import row
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import update, select, Integer
+from sqlalchemy import update, select, Integer, Row, RowMapping
 from typing import Dict, Tuple, List, Optional, Any, Sequence
 import logging
 from uuid import UUID
@@ -11,7 +11,7 @@ from uuid import UUID
 from src.database.repositories.base_repo import BaseRepository
 from src.database.models.pydantic_models import TweetDB, Category
 from src.database.models.models import User, TwitterAccount, twitter_account_categories, user_account_subscriptions, user_category_subscriptions, Category as Categories ,Tweet as TweetModel
-from src.database.schema.input import SubscribeUserAccount, GetTelegramUser
+from src.database.schema.input import SubscribeAccount, GetTelegramUser, SubscribeCategory
 from src.database.schema.output import OutputTelegramUser
 
 logger = logging.getLogger(__name__)
@@ -220,11 +220,50 @@ class UserRepository(BaseRepository[User]):
             weekly_digest=user_input.weekly_digest,
             last_digest_sent=None,
         )
-
         try:
-            logger.debug(f"Create subscribed accounts for user ID: {user_input.telegram_id}")
             self.session.add(user)
-            await self.session.commit()
+            result = await self.session.execute(
+                select(TwitterAccount).where(TwitterAccount.username == user_input.twitter_account)
+            )
+            tw_account = result.scalars().first()
+            user.subscribed_accounts.append(tw_account)
         except Exception as e:
             logger.error(f"Error in subscribe_user_account: {e}")
+
+        try:
+            await self.session.commit()
+            logger.debug(f"Create subscribed accounts for user ID: {user_input.telegram_id}"
+                         f" to twitter account: {user_input.twitter_account}")
+
+        except Exception as e:
+            logger.error(f"Error in subscribe_user_account: {e}")
+            raise
+
+    async def subscribe_user_category(self, user_input: SubscribeCategory) -> None:
+        user = User(
+            id=uuid.uuid4(),
+            telegram_id=user_input.telegram_id,
+            created_at=datetime.now(),
+            is_active=True,
+            daily_digest=user_input.daily_digest,
+            weekly_digest=user_input.weekly_digest,
+            last_digest_sent=None,
+        )
+        try:
+            self.session.add(user)
+            result = await self.session.execute(
+                select(Categories).where(Categories.id == user_input.twitter_category)
+            )
+            tw_category = result.scalars().first()
+            user.subscribed_categories.append(tw_category)
+        except Exception as e:
+            logger.error(f"Error in subscribe_user_category: {e}")
+
+        try:
+            await self.session.commit()
+            logger.debug(f"Create subscribed category for user ID: {user_input.telegram_id}"
+                         f" to twitter category: {user_input.twitter_account}")
+
+        except Exception as e:
+            logger.error(f"Error in subscribe_user_category: {e}")
             raise
