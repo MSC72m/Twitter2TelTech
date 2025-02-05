@@ -1,8 +1,8 @@
 import logging
-from telebot.types import Message
+from telebot.types import Message, CallbackQuery
 from telebot.async_telebot import AsyncTeleBot
 from app.app import generate_app
-from handlers.handler import handler_start_command, handler_follow_category, handler_follow_account
+from handlers.handler import handler_start_command, handler_follow_category, handler_follow_account, handle_callback_query
 import asyncio
 import sys
 import os
