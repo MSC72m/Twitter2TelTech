@@ -17,7 +17,15 @@ def account_list_button(accounts: Sequence[str]) -> InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
 
     for account in accounts:
-        markup.add(types.InlineKeyboardButton(account, callback_data="follow" + account))
+        markup.add(types.InlineKeyboardButton(account, callback_data=account))
+
+    return markup
+
+def time_button() -> InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+
+    weekly = types.InlineKeyboardButton("weekly", "weekly")
+    daily = types.InlineKeyboardButton("daily", "daily")
 
     return markup
 
