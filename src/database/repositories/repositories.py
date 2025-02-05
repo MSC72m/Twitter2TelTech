@@ -210,7 +210,7 @@ class UserRepository(BaseRepository[User]):
             logger.error(f"Error in get_all_subscribed_accounts: {e}")
             raise
 
-    async def subscribe_user_account(self, user_input: SubscribeUserAccount) -> None:
+    async def subscribe_user_account(self, user_input: SubscribeAccount) -> None:
         user = User(
             id = uuid.uuid4(),
             telegram_id = user_input.telegram_id,
