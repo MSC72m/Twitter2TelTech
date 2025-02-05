@@ -33,6 +33,10 @@ async def follow_category(message: Message):
 async def follow_account(message: Message):
     await handler_follow_account(bot, message, rdb)
 
+@bot.callback_query_handler(func=lambda call: True)
+async def handler_callback_query(call: CallbackQuery):
+    await handle_callback_query(bot, call, rdb)
+
 async def main():
     try:
         await bot.infinity_polling()
